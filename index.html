@@ -1,0 +1,1235 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ระบบนัดหมายบริการนวดแพทย์แผนไทย โรงพยาบาลชุมแสง</title>
+    
+    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+    <script src="https://unpkg.com/react-is@18/umd/react-is.development.js" crossorigin></script>
+    <script src="https://unpkg.com/prop-types/prop-types.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/recharts/umd/Recharts.js" crossorigin></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#0d9488', // Teal 600
+                        secondary: '#10b981', // Emerald 500
+                        light: '#ecfdf5', // Emerald 50
+                        dark: '#0f766e', // Teal 700
+                    },
+                    fontFamily: {
+                        sans: ['Sarabun', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Sarabun', sans-serif; background-color: #f3f4f6; }
+        .hide-scroll::-webkit-scrollbar { display: none; }
+        .hide-scroll { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo, useRef, createContext, useContext } = React;
+        const { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip: RechartsTooltip, Legend, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell } = window.Recharts;
+        const DEFAULT_GOOGLE_SHEET_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbzn08oMamuOAAHMD-jnsP7sSQz0k24GvxgBe-y-krfddBE7EJ6x9jj_dLWxlYLDW_9gjw/exec';
+        const EXPECTED_APPS_SCRIPT_VERSION = 'single-sheet-v5';
+
+        // SVG Icons
+        const Icon = {
+            Home: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>,
+            Calendar: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>,
+            Users: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>,
+            Chart: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>,
+            Refresh: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>,
+            Menu: () => <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>,
+            Plus: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path></svg>,
+            Search: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>,
+            LogOut: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>,
+            Close: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>,
+            Download: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>,
+            Settings: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+        };
+
+        // --- Mock Database ---
+        const todayStr = new Date().toLocaleDateString('en-CA', {timeZone:'Asia/Bangkok'});
+        
+        // Helper to generate dates around today
+        const getOffsetDate = (offsetDays) => {
+            const d = new Date();
+            d.setDate(d.getDate() + offsetDays);
+            return d.toISOString().split('T')[0];
+        };
+
+        const MOCK_USERS = [
+            { id: 1, username: 'admin', password: '123', role: 'Admin', name: 'ผู้ดูแลระบบ', active: true },
+            { id: 2, username: 'staff1', password: '123', role: 'Staff', name: 'เจ้าหน้าที่ 1', active: true },
+            { id: 3, username: 'exec', password: '123', role: 'Executive', name: 'ผู้อำนวยการ', active: true },
+        ];
+
+        const MOCK_THERAPISTS = [
+            { id: 1, provider_code: 'T001', first_name: 'สมชาย', last_name: 'ใจดี', position: 'แพทย์แผนไทย', phone: '0811111111', max_patients_per_day: 8, active: true },
+            { id: 2, provider_code: 'T002', first_name: 'สมหญิง', last_name: 'รักงาน', position: 'ผู้ช่วยแพทย์แผนไทย', phone: '0822222222', max_patients_per_day: 8, active: true },
+            { id: 3, provider_code: 'T003', first_name: 'สมศรี', last_name: 'มีสุข', position: 'หมอนวดแผนไทย', phone: '0833333333', max_patients_per_day: 6, active: true },
+            { id: 4, provider_code: 'T004', first_name: 'มานะ', last_name: 'อดทน', position: 'แพทย์แผนไทย', phone: '0844444444', max_patients_per_day: 10, active: true },
+            { id: 5, provider_code: 'T005', first_name: 'วิภา', last_name: 'สวยงาม', position: 'หมอนวดแผนไทย', phone: '0855555555', max_patients_per_day: 8, active: true },
+        ];
+
+        const MOCK_SERVICES = [
+            { id: 1, service_name: 'นวดไทย 1 ชั่วโมง', duration: 60, capacity: 1, active: true },
+            { id: 2, service_name: 'นวดไทย 2 ชั่วโมง', duration: 120, capacity: 1, active: true },
+            { id: 3, service_name: 'นวดประคบ 2 ชั่วโมง', duration: 120, capacity: 1, active: true },
+            { id: 4, service_name: 'นวดแก้อาการ 30 นาที', duration: 30, capacity: 2, active: true },
+        ];
+
+        const createTimeSlots = (start, end, duration) => {
+            const toMinutes = v => { const [h,m] = v.split(':').map(Number); return h*60+m; };
+            const toTime = v => `${String(Math.floor(v/60)).padStart(2,'0')}:${String(v%60).padStart(2,'0')}`;
+            const slots = []; let cursor = toMinutes(start); const finish = toMinutes(end); const step = Math.max(15, Number(duration) || 60);
+            while (cursor + step <= finish && slots.length < 20) { const slotEnd = cursor + step; slots.push({start:toTime(cursor),end:toTime(slotEnd),label:`${toTime(cursor)}-${toTime(slotEnd)}`}); cursor = slotEnd; }
+            return slots;
+        };
+
+        // Generate 50 mock patients
+        const MOCK_PATIENTS = Array.from({length: 50}, (_, i) => ({
+            id: i + 1,
+            hn: `HN${String(1000 + i).padStart(6, '0')}`,
+            citizen_id: `1${Math.floor(Math.random()*900000000000)}`,
+            first_name: `ผู้ป่วย${i+1}`,
+            last_name: `นามสกุล${i+1}`,
+            gender: Math.random() > 0.5 ? 'ชาย' : 'หญิง',
+            age: Math.floor(Math.random() * 60) + 20,
+            phone: `08${Math.floor(Math.random()*90000000)}`
+        }));
+
+        // Generate mock appointments (mix of past, today, future)
+        const MOCK_APPOINTMENTS = [];
+        let appointIdCounter = 1;
+        const statuses = ['รอนัด', 'มารับบริการแล้ว', 'เลื่อนนัด', 'ยกเลิก', 'ไม่มาตามนัด'];
+        
+        for(let i = -15; i <= 15; i++) {
+            const dateStr = getOffsetDate(i);
+            const numApps = Math.floor(Math.random() * 15) + 5; // 5 to 20 apps per day
+            for(let j=0; j<numApps; j++) {
+                let status = 'มารับบริการแล้ว';
+                if (i === 0) status = Math.random() > 0.3 ? 'รอนัด' : 'มารับบริการแล้ว';
+                if (i > 0) status = 'รอนัด';
+                if (i < 0 && Math.random() > 0.8) status = 'ไม่มาตามนัด';
+
+                MOCK_APPOINTMENTS.push({
+                    id: appointIdCounter++,
+                    patient_id: MOCK_PATIENTS[Math.floor(Math.random() * MOCK_PATIENTS.length)].id,
+                    therapist_id: MOCK_THERAPISTS[Math.floor(Math.random() * MOCK_THERAPISTS.length)].id,
+                    appointment_date: dateStr,
+                    appointment_time: `${String(Math.floor(Math.random() * 7) + 9).padStart(2,'0')}:00`, // 09:00 - 15:00
+                    service_type_id: MOCK_SERVICES[Math.floor(Math.random() * MOCK_SERVICES.length)].id,
+                    status: status,
+                    note: '',
+                    cash_paid: 0,
+                    treatment_right: ['บัตรทอง','ข้าราชการ','ประกันสังคม','ชำระเงินเอง'][Math.floor(Math.random()*4)],
+                    created_by: 2,
+                    created_at: getOffsetDate(i - 5)
+                });
+            }
+        }
+
+        // Add some "เลื่อนนัด" with history
+        const MOCK_HISTORY = [];
+        const rescheduleApps = MOCK_APPOINTMENTS.filter(a => a.appointment_date === todayStr).slice(0, 2);
+        rescheduleApps.forEach(a => {
+            a.status = 'เลื่อนนัด';
+            MOCK_HISTORY.push({
+                id: MOCK_HISTORY.length + 1,
+                appointment_id: a.id,
+                old_date: getOffsetDate(-2),
+                new_date: a.appointment_date,
+                old_time: a.appointment_time,
+                new_time: a.appointment_time,
+                old_therapist: a.therapist_id,
+                new_therapist: a.therapist_id,
+                reason: 'ผู้ป่วยติดธุระ',
+                changed_by: 2,
+                changed_at: getOffsetDate(-1)
+            });
+        });
+
+        // Context Setup
+        const AppContext = createContext();
+
+        // Utils
+        const dateKeyFromParts = (year, month, day) => {
+            let y=Number(year), m=Number(month), d=Number(day);
+            if(y>=2400) y-=543;
+            if(y>=0&&y<100) y+=2000;
+            const test=new Date(Date.UTC(y,m-1,d));
+            if(!y||m<1||m>12||d<1||d>31||test.getUTCFullYear()!==y||test.getUTCMonth()!==m-1||test.getUTCDate()!==d) return '';
+            return `${String(y).padStart(4,'0')}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+        };
+        const normalizeDateKey = value => {
+            if(value===null||value===undefined||value==='') return '';
+            if(value instanceof Date&&!Number.isNaN(value.getTime())) return dateKeyFromParts(value.getFullYear(),value.getMonth()+1,value.getDate());
+            if(typeof value==='number'||(/^\d+(\.\d+)?$/).test(String(value).trim())) {
+                const number=Number(value); let d;
+                if(number>100000000000) d=new Date(number);
+                else if(number>1000000000) d=new Date(number*1000);
+                else if(number>0&&number<100000) d=new Date(Date.UTC(1899,11,30)+Math.floor(number)*86400000);
+                if(d&&!Number.isNaN(d.getTime())) return dateKeyFromParts(d.getUTCFullYear(),d.getUTCMonth()+1,d.getUTCDate());
+            }
+            const thaiDigits={'๐':'0','๑':'1','๒':'2','๓':'3','๔':'4','๕':'5','๖':'6','๗':'7','๘':'8','๙':'9'};
+            const text=String(value).trim().replace(/[๐-๙]/g,c=>thaiDigits[c]).replace(/^['\"]|['\"]$/g,'');
+            let match=text.match(/^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})(?:\D|$)/);
+            if(match) { const key=dateKeyFromParts(match[1],match[2],match[3]); if(key) return key; }
+            match=text.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{2,4})(?:\D|$)/);
+            if(match) { const dmy=dateKeyFromParts(match[3],match[2],match[1]); if(dmy) return dmy; const mdy=dateKeyFromParts(match[3],match[1],match[2]); if(mdy) return mdy; }
+            const thaiMonths={'มกราคม':1,'ม.ค.':1,'มค':1,'กุมภาพันธ์':2,'ก.พ.':2,'กพ':2,'มีนาคม':3,'มี.ค.':3,'มีค':3,'เมษายน':4,'เม.ย.':4,'เมย':4,'พฤษภาคม':5,'พ.ค.':5,'พค':5,'มิถุนายน':6,'มิ.ย.':6,'มิย':6,'กรกฎาคม':7,'ก.ค.':7,'กค':7,'สิงหาคม':8,'ส.ค.':8,'สค':8,'กันยายน':9,'ก.ย.':9,'กย':9,'ตุลาคม':10,'ต.ค.':10,'ตค':10,'พฤศจิกายน':11,'พ.ย.':11,'พย':11,'ธันวาคม':12,'ธ.ค.':12,'ธค':12};
+            match=text.match(/^(\d{1,2})\s+([^\s]+)\s+(\d{2,4})/);
+            if(match&&thaiMonths[match[2]]) return dateKeyFromParts(match[3],thaiMonths[match[2]],match[1]);
+            const parsed=new Date(text);
+            return Number.isNaN(parsed.getTime())?'':dateKeyFromParts(parsed.getFullYear(),parsed.getMonth()+1,parsed.getDate());
+        };
+        const formatThaiDate = value => {
+            const key=normalizeDateKey(value); if(!key) return '';
+            const [year,month,day]=key.split('-').map(Number);
+            const months=['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+            return `${day} ${months[month-1]} ${year+543}`;
+        };
+        const formatFullThaiDate = (dateString) => {
+            const key=normalizeDateKey(dateString); if(!key) return '';
+            const [year,month,day]=key.split('-').map(Number);
+            const months = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
+            return `${day} ${months[month-1]} ${year+543}`;
+        };
+
+        const getStatusColor = (status) => {
+            switch(status) {
+                case 'รอนัด': return 'bg-yellow-100 text-yellow-800';
+                case 'มารับบริการแล้ว': return 'bg-green-100 text-green-800';
+                case 'ตามนัด': return 'bg-green-100 text-green-800';
+                case 'เลื่อนนัด': return 'bg-blue-100 text-blue-800';
+                case 'เลื่อน': return 'bg-blue-100 text-blue-800';
+                case 'ยกเลิก': return 'bg-red-100 text-red-800';
+                case 'ไม่มาตามนัด': return 'bg-gray-200 text-gray-800';
+                case 'ผิดนัด': return 'bg-red-100 text-red-800';
+                default: return 'bg-gray-100 text-gray-800';
+            }
+        };
+        
+        const getStatusDot = (status) => {
+            switch(status) {
+                case 'รอนัด': return '🟡';
+                case 'มารับบริการแล้ว': return '🟢';
+                case 'ตามนัด': return '🟢';
+                case 'เลื่อนนัด': return '🔵';
+                case 'เลื่อน': return '🔵';
+                case 'ยกเลิก': return '🔴';
+                case 'ไม่มาตามนัด': return '⚫';
+                case 'ผิดนัด': return '🔴';
+                default: return '⚪';
+            }
+        };
+
+        // --- Shared UI Components ---
+        const Card = ({ children, className = "" }) => (
+            <div className={`bg-white rounded-xl shadow-sm border border-gray-100 p-5 ${className}`}>
+                {children}
+            </div>
+        );
+
+        const Button = ({ children, onClick, variant = 'primary', className = "", type="button" }) => {
+            const baseStyle = "px-4 py-2 rounded-lg font-medium transition-colors duration-200 flex items-center justify-center gap-2";
+            const variants = {
+                primary: "bg-primary text-white hover:bg-dark",
+                secondary: "bg-emerald-100 text-dark hover:bg-emerald-200",
+                danger: "bg-red-50 text-red-600 hover:bg-red-100",
+                outline: "border border-gray-300 text-gray-700 hover:bg-gray-50",
+                ghost: "text-gray-600 hover:bg-gray-100"
+            };
+            return (
+                <button type={type} onClick={onClick} className={`${baseStyle} ${variants[variant]} ${className}`}>
+                    {children}
+                </button>
+            );
+        };
+
+        const Modal = ({ isOpen, onClose, title, children }) => {
+            if (!isOpen) return null;
+            return (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+                    <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-xl">
+                        <div className="sticky top-0 bg-white border-b border-gray-100 px-6 py-4 flex justify-between items-center z-10">
+                            <h2 className="text-xl font-bold text-gray-800">{title}</h2>
+                            <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full text-gray-500">
+                                <Icon.Close />
+                            </button>
+                        </div>
+                        <div className="p-6">
+                            {children}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- Main Layout ---
+        const Layout = ({ children, setView, currentView, user, onLogout }) => {
+            const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+            const navItems = [
+                { id: 'dashboard', label: 'Dashboard', icon: Icon.Home, roles: ['Admin', 'Staff'] },
+                { id: 'appointments', label: 'ตารางนัด', icon: Icon.Calendar, roles: ['Admin', 'Staff'] },
+                { id: 'reschedules', label: 'ผู้ป่วยเลื่อนนัด', icon: Icon.Refresh, roles: ['Admin', 'Staff'] },
+                { id: 'therapists', label: 'หมอนวด', icon: Icon.Users, roles: ['Admin', 'Staff', 'Executive'] },
+                { id: 'risks', label: 'อุบัติการณ์ความเสี่ยง', icon: Icon.Chart, roles: ['Admin', 'Staff'] },
+                { id: 'executive', label: 'Dashboard ผู้บริหาร', icon: Icon.Chart, roles: ['Admin', 'Executive'] },
+                { id: 'reports', label: 'รายงาน', icon: Icon.Download, roles: ['Admin', 'Executive', 'Staff'] },
+            ];
+
+            const filteredNav = navItems.filter(item => item.roles.includes(user.role));
+
+            return (
+                <div className="flex h-screen overflow-hidden bg-gray-50">
+                    {/* Sidebar Desktop */}
+                    <aside className={`w-64 bg-white border-r border-gray-200 hidden md:flex flex-col`}>
+                        <div className="p-6 border-b border-gray-100">
+                            <h1 className="text-xl font-bold text-primary leading-tight">ระบบนัดหมายแพทย์แผนไทย</h1>
+                            <p className="text-sm text-gray-500 mt-1">รพ.ชุมแสง</p>
+                        </div>
+                        <nav className="flex-1 overflow-y-auto py-4">
+                            {filteredNav.map(item => (
+                                <button
+                                    key={item.id}
+                                    onClick={() => setView(item.id)}
+                                    className={`w-full flex items-center gap-3 px-6 py-3 text-left transition-colors
+                                        ${currentView === item.id ? 'bg-light text-primary border-r-4 border-primary font-medium' : 'text-gray-600 hover:bg-gray-50 hover:text-primary'}`}
+                                >
+                                    <item.icon />
+                                    {item.label}
+                                </button>
+                            ))}
+                        </nav>
+                        <div className="p-4 border-t border-gray-100">
+                            <div className="flex items-center gap-3 mb-4 px-2">
+                                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold">
+                                    {user.name.charAt(0)}
+                                </div>
+                                <div>
+                                    <p className="text-sm font-bold text-gray-800">{user.name}</p>
+                                    <p className="text-xs text-gray-500">{user.role}</p>
+                                </div>
+                            </div>
+                            <Button variant="ghost" className="w-full text-red-600 hover:bg-red-50 hover:text-red-700 justify-start" onClick={onLogout}>
+                                <Icon.LogOut /> ออกจากระบบ
+                            </Button>
+                        </div>
+                    </aside>
+
+                    {/* Mobile Header & Sidebar */}
+                    <div className="md:hidden fixed top-0 left-0 right-0 h-16 bg-white border-b border-gray-200 flex justify-between items-center px-4 z-40">
+                        <h1 className="text-lg font-bold text-primary truncate">รพ.ชุมแสง</h1>
+                        <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="p-2 text-gray-600">
+                            <Icon.Menu />
+                        </button>
+                    </div>
+
+                    {isMobileMenuOpen && (
+                        <div className="md:hidden fixed inset-0 z-50 bg-black/50" onClick={() => setIsMobileMenuOpen(false)}>
+                            <div className="w-64 h-full bg-white flex flex-col" onClick={e => e.stopPropagation()}>
+                                <nav className="flex-1 overflow-y-auto py-4 mt-4">
+                                     {filteredNav.map(item => (
+                                        <button
+                                            key={item.id}
+                                            onClick={() => { setView(item.id); setIsMobileMenuOpen(false); }}
+                                            className={`w-full flex items-center gap-3 px-6 py-4 text-left
+                                                ${currentView === item.id ? 'bg-light text-primary font-medium' : 'text-gray-600'}`}
+                                        >
+                                            <item.icon /> {item.label}
+                                        </button>
+                                    ))}
+                                </nav>
+                                <Button variant="ghost" className="m-4 text-red-600 justify-start" onClick={onLogout}>
+                                    <Icon.LogOut /> ออกจากระบบ
+                                </Button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Main Content */}
+                    <main className="flex-1 overflow-y-auto pt-16 md:pt-0 pb-10">
+                        <div className="p-4 md:p-8 max-w-7xl mx-auto">
+                            {children}
+                        </div>
+                    </main>
+                </div>
+            );
+        };
+
+        // --- Views ---
+        const DashboardStaff = () => {
+            const { db, setDb, user, googleSheetUrl, setGoogleSheetUrl, googleSyncStatus, syncToGoogleSheet, appendToGoogleSheet, selectedDate, setSelectedDate } = useContext(AppContext);
+            const [newSlot, setNewSlot] = useState({start:'08:30',end:'09:30'});
+            const [newService, setNewService] = useState({name:'',duration:60,capacity:1});
+            const [quickAppointmentOpen, setQuickAppointmentOpen] = useState(false);
+            const [quickAppointment, setQuickAppointment] = useState({patient_name:'',patient_phone:'',therapist_id:'',appointment_time:'',service_type_id:'',treatment_right:'บัตรทอง'});
+            const timeSlots = db.customSlots;
+            const addSlot = async e => { e.preventDefault(); if(newSlot.end <= newSlot.start) return alert('เวลาสิ้นสุดต้องมากกว่าเวลาเริ่ม'); if(db.customSlots.some(s=>s.start===newSlot.start&&s.end===newSlot.end)) return alert('มีช่วงเวลานี้แล้ว'); const record={id:Date.now(),...newSlot,label:`${newSlot.start}-${newSlot.end}`}; try{await appendToGoogleSheet('customSlots',record);setDb(p=>({...p,customSlots:[...p.customSlots,record].sort((a,b)=>a.start.localeCompare(b.start))}));}catch(e){alert('เพิ่มช่วงเวลาไม่สำเร็จ');} };
+            const addService = async e => { e.preventDefault(); if(!newService.name.trim()) return; const record={id:Date.now(),service_name:newService.name.trim(),duration:Number(newService.duration),capacity:Number(newService.capacity),active:true}; try{await appendToGoogleSheet('services',record);setDb(p=>({...p,services:[...p.services,record]}));setNewService({name:'',duration:60,capacity:1});}catch(e){alert('เพิ่มกิจกรรมไม่สำเร็จ');} };
+            const openQuickAppointment = (therapist, slot) => { setQuickAppointment({patient_name:'',patient_phone:'',therapist_id:String(therapist.id),appointment_time:slot.start,service_type_id:String(db.services.find(s=>s.active)?.id || ''),treatment_right:'บัตรทอง'}); setQuickAppointmentOpen(true); };
+            const saveQuickAppointment = async e => {
+                e.preventDefault();
+                const therapistId=Number(quickAppointment.therapist_id), serviceId=Number(quickAppointment.service_type_id);
+                if(db.leaves.some(l=>Number(l.therapist_id)===therapistId&&normalizeDateKey(l.date)===selectedDate)) return alert('หมอนวดลาในวันที่เลือก ระบบปิดรับจองแล้ว');
+                const service=db.services.find(s=>Number(s.id)===serviceId);
+                const used=db.appointments.filter(a=>Number(a.therapist_id)===therapistId&&normalizeDateKey(a.appointment_date)===selectedDate&&a.appointment_time===quickAppointment.appointment_time&&Number(a.service_type_id)===serviceId&&!['ยกเลิก','ผิดนัด','เลื่อน','เลื่อนนัด'].includes(a.status)).length;
+                if(used >= (Number(service?.capacity)||1)) return alert(`ช่วงเวลานี้เต็มแล้ว (รับได้ ${service?.capacity || 1} คนต่อสลอต)`);
+                const record={id:Date.now(),patient_name:quickAppointment.patient_name.trim(),patient_phone:quickAppointment.patient_phone.trim(),patient_id:null,therapist_id:therapistId,appointment_date:selectedDate,appointment_time:quickAppointment.appointment_time,service_type_id:serviceId,treatment_right:quickAppointment.treatment_right,status:'รอนัด',note:'',cash_paid:0,created_by:user.id,created_at:new Date().toISOString(),appointment_day:new Date(`${selectedDate}T00:00:00`).toLocaleDateString('th-TH',{weekday:'long'})};
+                try { await appendToGoogleSheet('appointments',record); setDb(prev=>({...prev,appointments:[...prev.appointments,record]})); setQuickAppointmentOpen(false); } catch(error) { alert('บันทึกนัดหมายไม่สำเร็จ'); }
+            };
+
+            // Calculate Stats
+            const todaysAppointments = db.appointments.filter(a => normalizeDateKey(a.appointment_date) === selectedDate);
+            const stats = {
+                total: todaysAppointments.length,
+                completed: todaysAppointments.filter(a => ['มารับบริการแล้ว','ตามนัด'].includes(a.status)).length,
+                pending: todaysAppointments.filter(a => a.status === 'รอนัด').length,
+                rescheduled: todaysAppointments.filter(a => ['เลื่อนนัด','เลื่อน'].includes(a.status)).length,
+                cancelled: todaysAppointments.filter(a => ['ยกเลิก', 'ไม่มาตามนัด','ผิดนัด'].includes(a.status)).length,
+                cash: todaysAppointments.reduce((sum, a) => sum + (Number(a.cash_paid) || 0), 0),
+            };
+
+            // Therapist Workload today
+            const therapistWorkload = db.therapists.map(t => {
+                const apps = todaysAppointments.filter(a => Number(a.therapist_id) === Number(t.id) && !['ยกเลิก','ผิดนัด','เลื่อน','เลื่อนนัด'].includes(a.status));
+                return {
+                    name: `${t.first_name} ${t.last_name}`,
+                    count: apps.length,
+                    max: t.max_patients_per_day
+                };
+            });
+
+            return (
+                <div className="space-y-6">
+                    <div className="flex justify-between items-center">
+                        <div>
+                            <h2 className="text-2xl font-bold text-gray-800">Dashboard ประจำวัน</h2>
+                            <p className="text-gray-500">ข้อมูลประจำวันที่ {formatFullThaiDate(selectedDate)}</p>
+                        </div>
+                        <input 
+                            type="date" 
+                            value={selectedDate} 
+                            onChange={(e) => setSelectedDate(e.target.value)}
+                            className="border border-gray-300 rounded-lg px-4 py-2 focus:ring-primary focus:border-primary"
+                        />
+                    </div>
+
+                    {/* Summary Cards */}
+                    <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
+                        <Card className="bg-primary text-white border-none">
+                            <p className="text-sm opacity-80">นัดหมายทั้งหมด</p>
+                            <p className="text-3xl font-bold mt-1">{stats.total} <span className="text-sm font-normal">คน</span></p>
+                        </Card>
+                        <Card>
+                            <p className="text-sm text-gray-500">🟢 มารับบริการแล้ว</p>
+                            <p className="text-3xl font-bold text-green-600 mt-1">{stats.completed} <span className="text-sm font-normal text-gray-500">คน</span></p>
+                        </Card>
+                        <Card>
+                            <p className="text-sm text-gray-500">🟡 ยังไม่มารับบริการ</p>
+                            <p className="text-3xl font-bold text-yellow-600 mt-1">{stats.pending} <span className="text-sm font-normal text-gray-500">คน</span></p>
+                        </Card>
+                        <Card>
+                            <p className="text-sm text-gray-500">🔵 เลื่อนนัด</p>
+                            <p className="text-3xl font-bold text-blue-600 mt-1">{stats.rescheduled} <span className="text-sm font-normal text-gray-500">คน</span></p>
+                        </Card>
+                        <Card>
+                            <p className="text-sm text-gray-500">🔴 ยกเลิก/ไม่มา</p>
+                            <p className="text-3xl font-bold text-red-600 mt-1">{stats.cancelled} <span className="text-sm font-normal text-gray-500">คน</span></p>
+                        </Card>
+                        <Card className="bg-amber-50 border-amber-200">
+                            <p className="text-sm text-amber-700">💵 เงินสดรับวันนี้</p>
+                            <p className="text-3xl font-bold text-amber-700 mt-1">{stats.cash.toLocaleString('th-TH')} <span className="text-sm font-normal">บาท</span></p>
+                        </Card>
+                    </div>
+
+                    {user.role === 'Admin' && <Card className="border-blue-100 bg-blue-50/30"><h3 className="text-lg font-bold text-gray-800">เชื่อมต่อ Google Sheet</h3><p className="text-sm text-gray-500 mt-1 mb-4">ระบบใช้ชีต appointments เป็นแหล่งข้อมูลนัดเพียงชีตเดียว สถานะและยอดชำระจะอัปเดตที่แถวเดิม</p><div className="flex flex-col md:flex-row gap-3"><input type="url" value={googleSheetUrl} onChange={e=>setGoogleSheetUrl(e.target.value)} placeholder="https://script.google.com/macros/s/.../exec" className="flex-1 border border-gray-300 rounded-lg px-4 py-2"/><Button onClick={syncToGoogleSheet}>ดึงข้อมูลล่าสุด</Button></div><div className="mt-3 flex items-center gap-2 text-sm"><span className={`w-2.5 h-2.5 rounded-full ${googleSyncStatus.includes('แล้ว')?'bg-green-500':googleSyncStatus.includes('กำลัง')?'bg-yellow-500':'bg-gray-300'}`}></span><span className="text-gray-600">สถานะ: {googleSheetUrl ? googleSyncStatus : 'ยังไม่ได้เชื่อมต่อ'}</span></div><p className="text-xs text-gray-500 mt-3">หากต้องการลบข้อมูล ให้ลบจากชีต appointments แล้วรอประมาณ 15 วินาที</p></Card>}
+
+                    <Card className="p-0 overflow-hidden">
+                        <div className="p-5 border-b border-gray-100">
+                            <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-4"><div><h3 className="text-lg font-bold text-gray-800">ตารางคิวหมอนวดรายช่วงเวลา</h3>
+                            <p className="text-sm text-gray-500 mt-1">แสดงคิวประจำวันที่ {formatFullThaiDate(selectedDate)} · คิวที่ยกเลิกจะแสดงเป็น “คิวว่าง” และหมอนวดที่ลาจะแสดงเป็น “ลา / ปิดรับจอง”</p>
+                            </div><div className="flex flex-wrap items-end gap-3"><label className="text-xs text-gray-500">เลือกวันที่แสดงคิว<input type="date" value={selectedDate} onChange={e=>setSelectedDate(e.target.value)} className="block mt-1 border rounded-lg px-3 py-2 text-gray-700"/></label>{user.role === 'Admin' && <form onSubmit={addSlot} className="flex flex-wrap items-end gap-3 bg-gray-50 p-3 rounded-xl"><label className="text-xs text-gray-500">เวลาเริ่ม<input type="time" value={newSlot.start} onChange={e=>setNewSlot({...newSlot,start:e.target.value})} className="block mt-1 border rounded-lg px-3 py-2 text-gray-700"/></label><label className="text-xs text-gray-500">เวลาสิ้นสุด<input type="time" value={newSlot.end} onChange={e=>setNewSlot({...newSlot,end:e.target.value})} className="block mt-1 border rounded-lg px-3 py-2 text-gray-700"/></label><Button type="submit"><Icon.Plus/> เพิ่มช่วงเวลา</Button></form>}</div></div>
+                        </div>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm text-left min-w-[1100px]">
+                                <thead className="bg-gray-50 text-gray-700"><tr><th className="py-3 px-4 sticky left-0 bg-gray-50 z-10">หมอนวด</th>{timeSlots.map(slot => <th key={slot.id} className="py-3 px-4 whitespace-nowrap text-center"><div>{slot.label}</div></th>)}</tr></thead>
+                                <tbody className="divide-y divide-gray-100">
+                                    {db.therapists.filter(t => t.active).map(t => <tr key={t.id}>
+                                        <td className="py-3 px-4 font-semibold text-primary sticky left-0 bg-white z-10 whitespace-nowrap">{t.first_name} {t.last_name}</td>
+                                        {timeSlots.map(slot => {
+                                            const isLeave = db.leaves.some(l => Number(l.therapist_id) === Number(t.id) && normalizeDateKey(l.date) === selectedDate);
+                                            const apps = todaysAppointments.filter(a => Number(a.therapist_id) === Number(t.id) && a.appointment_time >= slot.start && a.appointment_time < slot.end && !['ยกเลิก','ผิดนัด','เลื่อน','เลื่อนนัด'].includes(a.status));
+                                            return <td key={slot.id} className="py-3 px-4 text-center">
+                                                {isLeave ? <span className="inline-block rounded-lg bg-red-50 text-red-700 px-3 py-2 font-medium">ลา</span> : <div className="space-y-2">{apps.length ? <div className="space-y-1">{apps.map(app=>{const patient=db.patients.find(p=>p.id===app.patient_id);const service=db.services.find(s=>Number(s.id)===Number(app.service_type_id));return <div key={app.id} className="rounded-lg bg-emerald-50 border border-emerald-100 px-3 py-2 text-left"><div className="font-semibold text-emerald-800">{app.patient_name || `${patient?.first_name || ''} ${patient?.last_name || ''}`}</div><div className="text-xs font-medium text-teal-700">{service?.service_name || 'ไม่ระบุกิจกรรม'}</div><div className="text-xs text-emerald-600">{app.appointment_time} · {app.status}</div></div>})}</div> : <span className="text-gray-400">คิวว่าง</span>}<button type="button" onClick={()=>openQuickAppointment(t,slot)} className="w-full rounded-lg border border-dashed border-teal-300 px-2 py-1.5 text-xs font-medium text-primary hover:bg-emerald-50">＋ เพิ่มนัด</button></div>}
+                                            </td>;
+                                        })}
+                                    </tr>)}
+                                </tbody>
+                            </table>
+                        </div>
+                    </Card>
+
+                    <Modal isOpen={quickAppointmentOpen} onClose={()=>setQuickAppointmentOpen(false)} title="➕ เพิ่มนัดจากตารางคิว">
+                        <form onSubmit={saveQuickAppointment} className="space-y-4">
+                            <div className="rounded-xl bg-emerald-50 border border-emerald-100 p-4 text-sm"><div><b>วันที่:</b> {formatFullThaiDate(selectedDate)}</div><div><b>เวลา:</b> {quickAppointment.appointment_time}</div><div><b>หมอนวด:</b> {(()=>{const t=db.therapists.find(x=>String(x.id)===String(quickAppointment.therapist_id));return t?`${t.first_name} ${t.last_name}`:'-';})()}</div></div>
+                            <div className="grid md:grid-cols-2 gap-4"><label className="text-sm font-medium text-gray-700">ชื่อ-สกุลผู้ป่วย<input required value={quickAppointment.patient_name} onChange={e=>setQuickAppointment({...quickAppointment,patient_name:e.target.value})} className="block mt-1 w-full border border-gray-300 rounded-lg px-4 py-2"/></label><label className="text-sm font-medium text-gray-700">เบอร์โทรศัพท์<input required type="tel" value={quickAppointment.patient_phone} onChange={e=>setQuickAppointment({...quickAppointment,patient_phone:e.target.value})} className="block mt-1 w-full border border-gray-300 rounded-lg px-4 py-2"/></label></div>
+                            <label className="block text-sm font-medium text-gray-700">กิจกรรมนวด<select required value={quickAppointment.service_type_id} onChange={e=>setQuickAppointment({...quickAppointment,service_type_id:e.target.value})} className="block mt-1 w-full border border-gray-300 rounded-lg px-4 py-2"><option value="">-- เลือกกิจกรรม --</option>{db.services.filter(s=>s.active).map(s=><option key={s.id} value={s.id}>{s.service_name} · {s.duration} นาที · รับ {s.capacity} คน/สลอต</option>)}</select></label>
+                            <label className="block text-sm font-medium text-gray-700">สิทธิ์รักษา<select value={quickAppointment.treatment_right} onChange={e=>setQuickAppointment({...quickAppointment,treatment_right:e.target.value})} className="block mt-1 w-full border border-gray-300 rounded-lg px-4 py-2"><option>บัตรทอง</option><option>ข้าราชการ</option><option>ประกันสังคม</option><option>ชำระเงินเอง</option><option>อื่นๆ</option></select></label>
+                            <div className="flex justify-end gap-3 pt-2"><Button type="button" variant="outline" onClick={()=>setQuickAppointmentOpen(false)}>ยกเลิก</Button><Button type="submit">บันทึกการนัด</Button></div>
+                        </form>
+                    </Modal>
+
+                    {user.role === 'Admin' && <Card><h3 className="text-lg font-bold text-gray-800 mb-1">เพิ่มกิจกรรมนวด</h3><p className="text-sm text-gray-500 mb-4">หน้าเว็บเพิ่มข้อมูลได้อย่างเดียว การแก้ไขหรือลบให้ทำใน Google Sheet</p><form onSubmit={addService} className="grid md:grid-cols-[2fr_1fr_1fr_auto] gap-3 items-end mb-5"><label className="text-xs text-gray-500">ชื่อกิจกรรม<input required value={newService.name} onChange={e=>setNewService({...newService,name:e.target.value})} placeholder="เช่น นวดน้ำมัน" className="block mt-1 w-full border rounded-lg px-3 py-2"/></label><label className="text-xs text-gray-500">ระยะเวลา (นาที)<input type="number" min="15" step="15" value={newService.duration} onChange={e=>setNewService({...newService,duration:e.target.value})} className="block mt-1 w-full border rounded-lg px-3 py-2"/></label><label className="text-xs text-gray-500">คนต่อสลอต<input type="number" min="1" value={newService.capacity} onChange={e=>setNewService({...newService,capacity:e.target.value})} className="block mt-1 w-full border rounded-lg px-3 py-2"/></label><Button type="submit"><Icon.Plus/> เพิ่มกิจกรรม</Button></form><div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-gray-50"><tr><th className="text-left p-3">กิจกรรม</th><th className="text-left p-3">นาที</th><th className="text-left p-3">คน/สลอต</th></tr></thead><tbody className="divide-y">{db.services.map(s=><tr key={s.id}><td className="p-3 font-medium">{s.service_name}</td><td className="p-3">{s.duration || 60}</td><td className="p-3">{s.capacity || 1}</td></tr>)}</tbody></table></div></Card>}
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        {/* Workload Table */}
+                        <Card>
+                            <h3 className="text-lg font-bold text-gray-800 mb-4">ภาระงานหมอนวดวันนี้</h3>
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-sm text-left">
+                                    <thead className="bg-gray-50 text-gray-600">
+                                        <tr>
+                                            <th className="py-3 px-4 rounded-tl-lg">หมอนวด</th>
+                                            <th className="py-3 px-4">จำนวนนัด (คน)</th>
+                                            <th className="py-3 px-4 rounded-tr-lg">สถานะคิว</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-100">
+                                        {therapistWorkload.map((t, i) => {
+                                            const percent = (t.count / t.max) * 100;
+                                            return (
+                                            <tr key={i} className="hover:bg-gray-50">
+                                                <td className="py-3 px-4 font-medium">{t.name}</td>
+                                                <td className="py-3 px-4">{t.count} / {t.max}</td>
+                                                <td className="py-3 px-4">
+                                                    <div className="w-full bg-gray-200 rounded-full h-2.5">
+                                                        <div className={`h-2.5 rounded-full ${percent >= 100 ? 'bg-red-500' : percent > 75 ? 'bg-yellow-500' : 'bg-primary'}`} style={{ width: `${Math.min(percent, 100)}%` }}></div>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        )})}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </Card>
+
+                        {/* Workload Chart */}
+                        <Card>
+                            <h3 className="text-lg font-bold text-gray-800 mb-4">กราฟเปรียบเทียบภาระงาน</h3>
+                            <div className="h-64">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart data={therapistWorkload}>
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                        <XAxis dataKey="name" tick={{fontSize: 12}} />
+                                        <YAxis />
+                                        <RechartsTooltip />
+                                        <Bar dataKey="count" fill="#0d9488" name="จำนวนนัดหมาย" radius={[4, 4, 0, 0]} />
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            </div>
+                        </Card>
+                    </div>
+                </div>
+            );
+        };
+
+        const Therapists = () => {
+            const { db, setDb, appendToGoogleSheet } = useContext(AppContext);
+            const [name, setName] = useState('');
+            const [leaveDate, setLeaveDate] = useState(todayStr);
+            const [leaveTherapist, setLeaveTherapist] = useState(db.therapists[0]?.id || '');
+            const addTherapist = async e => { e.preventDefault(); const parts=name.trim().split(/\s+/); if(!name.trim())return; const record={id:Date.now(),provider_code:`T${String(db.therapists.length+1).padStart(3,'0')}`,first_name:parts[0],last_name:parts.slice(1).join(' ')||'',position:'หมอนวดแผนไทย',phone:'',max_patients_per_day:8,active:true}; try{await appendToGoogleSheet('therapists',record);setDb(p=>({...p,therapists:[...p.therapists,record]}));setName('');}catch(e){alert('เพิ่มหมอนวดไม่สำเร็จ');} };
+            const addLeave = async e => { e.preventDefault(); const therapistId=Number(leaveTherapist); if(db.leaves.some(l=>Number(l.therapist_id)===therapistId&&normalizeDateKey(l.date)===leaveDate))return alert('ลงวันลานี้ไว้แล้ว'); const record={id:Date.now(),therapist_id:therapistId,date:leaveDate}; try{await appendToGoogleSheet('leaves',record);setDb(p=>({...p,leaves:[...p.leaves,record]}));}catch(e){alert('บันทึกวันลาไม่สำเร็จ');} };
+            return <div className="space-y-6"><h2 className="text-2xl font-bold text-gray-800">จัดการหมอนวดและวันลา</h2><div className="grid lg:grid-cols-2 gap-6">
+                <Card><h3 className="font-bold text-lg mb-4">เพิ่มชื่อหมอนวด</h3><form onSubmit={addTherapist} className="flex gap-3"><input value={name} onChange={e=>setName(e.target.value)} required placeholder="ชื่อ นามสกุล" className="flex-1 border rounded-lg px-4 py-2"/><Button type="submit"><Icon.Plus/> เพิ่ม</Button></form><div className="mt-5 divide-y">{db.therapists.map(t=><div key={t.id} className="py-3 flex justify-between items-center"><span className="font-medium">{t.first_name} {t.last_name}</span><span className="text-xs text-primary bg-emerald-50 px-2 py-1 rounded">{t.provider_code}</span></div>)}</div></Card>
+                <Card><h3 className="font-bold text-lg mb-4">ลงวันลาหมอนวด</h3><form onSubmit={addLeave} className="space-y-3"><select value={leaveTherapist} onChange={e=>setLeaveTherapist(e.target.value)} className="w-full border rounded-lg px-4 py-2">{db.therapists.map(t=><option key={t.id} value={t.id}>{t.first_name} {t.last_name}</option>)}</select><input type="date" value={leaveDate} onChange={e=>setLeaveDate(e.target.value)} required className="w-full border rounded-lg px-4 py-2"/><Button type="submit" className="w-full">บันทึกวันลาและปิดสลอต</Button></form><p className="text-xs text-gray-500 mt-3">การแก้ไขหรือลบวันลาให้ดำเนินการใน Google Sheet</p><div className="mt-5 space-y-2">{db.leaves.sort((a,b)=>b.date.localeCompare(a.date)).map(l=>{const t=db.therapists.find(x=>x.id===l.therapist_id);return <div key={l.id} className="bg-red-50 text-red-700 rounded-lg px-3 py-2">{t?.first_name} {t?.last_name} · {formatThaiDate(l.date)}</div>})}</div></Card>
+            </div></div>;
+        };
+
+        const RiskReports = () => {
+            const { db, setDb, appendToGoogleSheet } = useContext(AppContext); const [form,setForm]=useState({date:todayStr,found_by:'',detail:''});
+            const save=async e=>{e.preventDefault();const record={id:Date.now(),...form};try{await appendToGoogleSheet('incidents',record);setDb(p=>({...p,incidents:[record,...p.incidents]}));setForm({...form,found_by:'',detail:''});}catch(e){alert('บันทึกความเสี่ยงไม่สำเร็จ');}};
+            return <div className="space-y-6"><h2 className="text-2xl font-bold text-gray-800">รายงานอุบัติการณ์ความเสี่ยง</h2><div className="grid lg:grid-cols-2 gap-6"><Card><form onSubmit={save} className="space-y-4"><div><label className="block text-sm mb-1">วันที่พบ</label><input type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})} className="w-full border rounded-lg px-4 py-2"/></div><div><label className="block text-sm mb-1">บุคคลที่พบความเสี่ยง</label><input required value={form.found_by} onChange={e=>setForm({...form,found_by:e.target.value})} className="w-full border rounded-lg px-4 py-2" placeholder="ชื่อ-สกุล"/></div><div><label className="block text-sm mb-1">รายละเอียดอุบัติการณ์/ความเสี่ยง</label><textarea required rows="5" value={form.detail} onChange={e=>setForm({...form,detail:e.target.value})} className="w-full border rounded-lg px-4 py-2" placeholder="ระบุสิ่งที่พบและการดำเนินการเบื้องต้น"></textarea></div><Button type="submit" className="w-full">บันทึกรายงาน</Button></form></Card><Card><h3 className="font-bold mb-4">รายการที่บันทึก</h3><div className="space-y-3">{db.incidents.length===0?<p className="text-gray-400 text-center py-10">ยังไม่มีรายงาน</p>:db.incidents.map(i=><div key={i.id} className="border rounded-lg p-3"><div className="flex justify-between"><b>{i.found_by}</b><span className="text-xs text-gray-500">{formatThaiDate(i.date)}</span></div><p className="text-sm text-gray-600 mt-2">{i.detail}</p></div>)}</div></Card></div></div>;
+        };
+
+        const DashboardExecutive = () => {
+             const { db, selectedDate, setSelectedDate } = useContext(AppContext);
+             const currentMonthStr = (normalizeDateKey(selectedDate)||todayStr).substring(0,7);
+             
+             // Monthly Stats (Active month only)
+             const monthApps = db.appointments.filter(a => normalizeDateKey(a.appointment_date).startsWith(currentMonthStr));
+             
+             const completedCount = monthApps.filter(a => ['มารับบริการแล้ว','ตามนัด'].includes(a.status)).length;
+             const totalCount = monthApps.length;
+             const monthlyRiskCount = db.incidents.filter(i => normalizeDateKey(i.date).startsWith(currentMonthStr)).length;
+             const monthlyCashTotal = monthApps.reduce((sum, a) => sum + (Number(a.cash_paid) || 0), 0);
+             const treatmentRightsSummary = Object.entries(monthApps.reduce((summary, a) => { const right=a.treatment_right || 'ไม่ระบุสิทธิ'; summary[right]=(summary[right]||0)+1; return summary; }, {})).map(([name,count])=>({name,count})).sort((a,b)=>b.count-a.count);
+             const therapistMonthlySummary = db.therapists.map(t => ({
+                 id: t.id,
+                 name: `${t.first_name} ${t.last_name}`,
+                 count: monthApps.filter(a => Number(a.therapist_id) === Number(t.id) && ['มารับบริการแล้ว','ตามนัด'].includes(a.status)).length,
+                 byService: Object.fromEntries(db.services.map(s => [s.id, monthApps.filter(a => Number(a.therapist_id) === Number(t.id) && Number(a.service_type_id) === Number(s.id) && ['มารับบริการแล้ว','ตามนัด'].includes(a.status)).length]))
+             })).sort((a,b) => b.count-a.count);
+             
+             // Chart 1: Daily Trend
+             const dailyData = useMemo(() => {
+                 const days = {};
+                 monthApps.forEach(a => {
+                     if(['มารับบริการแล้ว','ตามนัด'].includes(a.status)) {
+                        const key=normalizeDateKey(a.appointment_date); if(key) days[key]=(days[key]||0)+1;
+                     }
+                 });
+                 return Object.keys(days).sort().map(k => ({ date: k.split('-')[2], count: days[k] }));
+             }, [monthApps]);
+
+             // Chart 2: Status Donut
+             const statusData = [
+                 { name: 'มารับบริการแล้ว', value: completedCount, color: '#10b981' },
+                 { name: 'เลื่อนนัด', value: monthApps.filter(a => ['เลื่อนนัด','เลื่อน'].includes(a.status)).length, color: '#3b82f6' },
+                 { name: 'ยกเลิก', value: monthApps.filter(a => a.status === 'ยกเลิก').length, color: '#ef4444' },
+                 { name: 'ไม่มาตามนัด', value: monthApps.filter(a => ['ไม่มาตามนัด','ผิดนัด'].includes(a.status)).length, color: '#6b7280' },
+             ];
+
+             const exportExecutiveWord = () => {
+                 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+                 const rightsRows = treatmentRightsSummary.map(r=>`<tr><td>${esc(r.name)}</td><td class="num">${r.count}</td></tr>`).join('');
+                 const therapistRows = therapistMonthlySummary.map(t=>`<tr><td>${esc(t.name)}</td>${db.services.map(s=>`<td class="num">${t.byService[s.id]||0}</td>`).join('')}<td class="num"><b>${t.count}</b></td></tr>`).join('');
+                 const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>@page{size:A4;margin:1.6cm}body{font-family:"TH Sarabun New",Sarabun,Arial,sans-serif;font-size:16pt;color:#1f2937}h1{color:#0f766e;text-align:center;font-size:24pt;margin-bottom:4px}h2{color:#0f766e;font-size:18pt;margin-top:22px}p.sub{text-align:center;color:#6b7280;margin-top:0}table{border-collapse:collapse;width:100%;margin:8px 0 18px}th,td{border:1px solid #cbd5e1;padding:7px}th{background:#d1fae5;color:#065f46}.num{text-align:right}.summary{background:#f8fafc;padding:12px;border-left:5px solid #0d9488}</style></head><body><h1>บทสรุปผู้บริหาร งานแพทย์แผนไทย</h1><p class="sub">โรงพยาบาลชุมแสง · ประจำเดือน ${esc(currentMonthStr)}</p><div class="summary"><b>ภาพรวม:</b> นัดหมาย ${totalCount} คน, มารับบริการแล้ว ${completedCount} คน, ความเสี่ยง ${monthlyRiskCount} ครั้ง, เงินสด ${monthlyCashTotal.toLocaleString('th-TH')} บาท</div><h2>สรุปสิทธิประจำตัวผู้ป่วย</h2><table><tr><th>สิทธิรักษา</th><th>จำนวน (คน)</th></tr>${rightsRows || '<tr><td colspan="2">ไม่มีข้อมูล</td></tr>'}</table><h2>ผลงานหมอนวดแยกตามกิจกรรม</h2><table><tr><th>หมอนวด</th>${db.services.map(s=>`<th>${esc(s.service_name)}</th>`).join('')}<th>รวม</th></tr>${therapistRows}</table><p>จัดทำเมื่อ ${esc(new Date().toLocaleString('th-TH'))}</p></body></html>`;
+                 const blob = new Blob(['\ufeff',html],{type:'application/msword;charset=utf-8'}); const url=URL.createObjectURL(blob); const link=document.createElement('a'); link.href=url; link.download=`บทสรุปผู้บริหาร-${currentMonthStr}.doc`; document.body.appendChild(link); link.click(); link.remove(); setTimeout(()=>URL.revokeObjectURL(url),1000);
+             };
+
+            return (
+                <div className="space-y-6">
+                    <div className="flex flex-col md:flex-row justify-between md:items-center gap-3">
+                        <h2 className="text-2xl font-bold text-gray-800">Executive Dashboard</h2>
+                        <div className="flex flex-wrap items-center gap-3"><label className="text-sm text-gray-500">เลือกเดือน<input type="month" value={currentMonthStr} onChange={e=>setSelectedDate(`${e.target.value}-01`)} className="block mt-1 border border-gray-300 rounded-lg px-3 py-2 text-gray-700"/></label><span className="bg-primary/10 text-primary px-4 py-2 rounded-lg font-bold">ข้อมูลเดือนที่เลือก</span><Button onClick={exportExecutiveWord}><Icon.Download/> ส่งออกบทสรุป Word</Button></div>
+                    </div>
+
+                    <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
+                         <Card className="text-center">
+                            <p className="text-gray-500 mb-1">ผู้รับบริการทั้งหมด (คน)</p>
+                            <p className="text-4xl font-bold text-primary">{totalCount}</p>
+                         </Card>
+                         <Card className="text-center">
+                            <p className="text-gray-500 mb-1">เฉลี่ยต่อวัน (คน)</p>
+                            <p className="text-4xl font-bold text-primary">{(completedCount / 30).toFixed(1)}</p>
+                         </Card>
+                         <Card className="text-center">
+                            <p className="text-gray-500 mb-1">อัตราการมาตามนัด</p>
+                            <p className="text-4xl font-bold text-green-500">{totalCount ? ((completedCount/totalCount)*100).toFixed(1) : 0}%</p>
+                         </Card>
+                         <Card className="text-center">
+                            <p className="text-gray-500 mb-1">จำนวนการเลื่อนนัด (ครั้ง)</p>
+                            <p className="text-4xl font-bold text-blue-500">{statusData[1].value}</p>
+                         </Card>
+                         <Card className="text-center bg-red-50 border-red-100">
+                            <p className="text-red-600 mb-1">ความเสี่ยงประจำเดือน (ครั้ง)</p>
+                            <p className="text-4xl font-bold text-red-600">{monthlyRiskCount}</p>
+                         </Card>
+                         <Card className="text-center bg-amber-50 border-amber-200">
+                            <p className="text-amber-700 mb-1">เงินสดที่ผู้ป่วยจ่ายในเดือนนี้</p>
+                            <p className="text-3xl font-bold text-amber-700">{monthlyCashTotal.toLocaleString('th-TH')}</p>
+                            <p className="text-sm text-amber-600 mt-1">บาท</p>
+                         </Card>
+                    </div>
+
+                    <Card><h3 className="text-lg font-bold text-gray-800 mb-4">สรุปสิทธิประจำตัวผู้ป่วยในเดือนนี้</h3><div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">{treatmentRightsSummary.length?treatmentRightsSummary.map(r=><div key={r.name} className="rounded-xl bg-emerald-50 border border-emerald-100 p-4"><p className="text-sm text-gray-600">{r.name}</p><p className="text-3xl font-bold text-primary mt-1">{r.count} <span className="text-sm font-normal">คน</span></p></div>):<p className="text-gray-500">ยังไม่มีข้อมูลสิทธิรักษา</p>}</div></Card>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <Card>
+                            <h3 className="text-lg font-bold text-gray-800 mb-4">แนวโน้มผู้รับบริการรายวัน (เฉพาะที่มารับบริการ)</h3>
+                             <div className="h-72">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <LineChart data={dailyData}>
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                        <XAxis dataKey="date" />
+                                        <YAxis />
+                                        <RechartsTooltip />
+                                        <Line type="monotone" dataKey="count" stroke="#0d9488" strokeWidth={3} dot={{r: 4}} name="จำนวนผู้ป่วย" />
+                                    </LineChart>
+                                </ResponsiveContainer>
+                            </div>
+                        </Card>
+                        <Card>
+                            <h3 className="text-lg font-bold text-gray-800 mb-4">สัดส่วนสถานะการนัดหมาย</h3>
+                             <div className="h-72 flex justify-center">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <PieChart>
+                                        <Pie data={statusData} cx="50%" cy="50%" innerRadius={60} outerRadius={100} paddingAngle={5} dataKey="value">
+                                            {statusData.map((entry, index) => (
+                                                <Cell key={`cell-${index}`} fill={entry.color} />
+                                            ))}
+                                        </Pie>
+                                        <RechartsTooltip />
+                                        <Legend />
+                                    </PieChart>
+                                </ResponsiveContainer>
+                            </div>
+                        </Card>
+                    </div>
+                    <Card className="p-0 overflow-hidden"><div className="p-5 border-b"><h3 className="text-lg font-bold text-gray-800">สรุปจำนวนผู้ป่วยที่หมอนวดให้บริการในเดือนนี้</h3><p className="text-sm text-gray-500">แยกจำนวนเคสตามกิจกรรมนวด และนับเฉพาะสถานะ “มารับบริการแล้ว”</p></div><div className="overflow-x-auto"><table className="w-full text-sm min-w-[900px]"><thead className="bg-gray-50 text-gray-600"><tr><th className="text-left py-3 px-5 sticky left-0 bg-gray-50">หมอนวด</th>{db.services.map(s=><th key={s.id} className="text-center py-3 px-4">{s.service_name}</th>)}<th className="text-right py-3 px-5">รวมทุกกิจกรรม</th></tr></thead><tbody className="divide-y">{therapistMonthlySummary.map(t=><tr key={t.id}><td className="py-3 px-5 font-medium sticky left-0 bg-white">{t.name}</td>{db.services.map(s=><td key={s.id} className="py-3 px-4 text-center"><span className={`inline-block min-w-10 rounded-full px-3 py-1 font-medium ${t.byService[s.id] ? 'bg-emerald-50 text-primary' : 'text-gray-400'}`}>{t.byService[s.id] || 0}</span></td>)}<td className="py-3 px-5 text-right"><span className="inline-block min-w-16 bg-primary text-white font-bold rounded-full px-3 py-1">{t.count}</span></td></tr>)}</tbody><tfoot className="bg-gray-50 font-bold"><tr><td className="py-3 px-5 sticky left-0 bg-gray-50">รวม</td>{db.services.map(s=><td key={s.id} className="py-3 px-4 text-center text-primary">{therapistMonthlySummary.reduce((sum,t)=>sum+(t.byService[s.id]||0),0)}</td>)}<td className="py-3 px-5 text-right text-primary">{therapistMonthlySummary.reduce((s,t)=>s+t.count,0)} คน</td></tr></tfoot></table></div></Card>
+                </div>
+            )
+        };
+
+        // --- Appointments View ---
+        const Appointments = () => {
+            const { db, setDb, user, appendToGoogleSheet, selectedDate:filterDate, setSelectedDate:setFilterDate } = useContext(AppContext);
+            const [searchQuery, setSearchQuery] = useState('');
+            const [isModalOpen, setIsModalOpen] = useState(false);
+            const [isRescheduleOpen, setIsRescheduleOpen] = useState(false);
+            const [selectedAppoint, setSelectedAppoint] = useState(null);
+            const [cashDrafts, setCashDrafts] = useState({});
+
+            // Form States
+            const [formData, setFormData] = useState({
+                patient_name: '',
+                patient_phone: '',
+                therapist_id: '',
+                appointment_date: filterDate,
+                appointment_time: db.customSlots[0]?.start || '08:30',
+                service_type_id: '1',
+                treatment_right: 'บัตรทอง'
+            });
+            const [rescheduleData, setRescheduleData] = useState({
+                new_date: '', new_time: '', new_therapist_id: '', reason: ''
+            });
+            useEffect(() => setFormData(current => ({...current, appointment_date: filterDate})), [filterDate]);
+
+            const displayData = useMemo(() => {
+                let data = db.appointments.filter(a => normalizeDateKey(a.appointment_date) === filterDate);
+                
+                // Map relational data
+                data = data.map(a => {
+                    const patient = db.patients.find(p => p.id === a.patient_id) || {};
+                    const therapist = db.therapists.find(t => Number(t.id) === Number(a.therapist_id)) || {};
+                    const service = db.services.find(s => Number(s.id) === Number(a.service_type_id)) || {};
+                    return { ...a, patient: {first_name:a.patient_name || patient.first_name || '',last_name:a.patient_name ? '' : (patient.last_name || ''),phone:a.patient_phone || patient.phone || '',hn:patient.hn || ''}, therapist, service };
+                });
+
+                if(searchQuery) {
+                    const q = searchQuery.toLowerCase();
+                    data = data.filter(a => 
+                        a.patient.first_name.toLowerCase().includes(q) || 
+                        a.patient.last_name.toLowerCase().includes(q) ||
+                        a.patient.phone.includes(q) || a.patient.hn.toLowerCase().includes(q)
+                    );
+                }
+                // Sort by time
+                return data.sort((a,b) => a.appointment_time.localeCompare(b.appointment_time));
+            }, [db, filterDate, searchQuery]);
+
+            const appendAppointmentUpdate = async (item, changes) => {
+                const update = {id:Date.now(), appointment_id:item.id, appointment_date:normalizeDateKey(item.appointment_date), ...changes, updated_at:new Date().toISOString()};
+                try {
+                    await appendToGoogleSheet('appointmentUpdates', update);
+                    setDb(prev => ({...prev, appointments:prev.appointments.map(a=>String(a.id)===String(item.id)?{...a,...changes}:a)}));
+                    return true;
+                } catch(e) { alert('บันทึกการแก้ไขไม่สำเร็จ กรุณาลองอีกครั้ง'); return false; }
+            };
+
+            const saveCashPaid = async item => {
+                const amount = Math.max(0, Number(cashDrafts[item.id] ?? item.cash_paid) || 0);
+                if (amount === (Number(item.cash_paid) || 0)) return;
+                const saved = await appendAppointmentUpdate(item, {cash_paid:amount});
+                if (saved) setCashDrafts(prev => { const next={...prev}; delete next[item.id]; return next; });
+            };
+
+            const handleRightChange = (id, value) => setDb(prev => ({...prev,appointments:prev.appointments.map(a => a.id === id ? {...a,treatment_right:value} : a)}));
+
+            const handleSaveNew = async (e) => {
+                e.preventDefault();
+                const therapistId = parseInt(formData.therapist_id);
+                if (db.leaves.some(l => Number(l.therapist_id) === therapistId && normalizeDateKey(l.date) === formData.appointment_date)) {
+                    alert('หมอนวดท่านนี้ลาในวันที่เลือก ระบบปิดรับจองแล้ว'); return;
+                }
+                const selectedService = db.services.find(s => s.id === parseInt(formData.service_type_id));
+                const usedCapacity = db.appointments.filter(a => Number(a.therapist_id) === therapistId && normalizeDateKey(a.appointment_date) === formData.appointment_date && a.appointment_time === formData.appointment_time && Number(a.service_type_id) === parseInt(formData.service_type_id) && !['ยกเลิก','ผิดนัด','เลื่อน','เลื่อนนัด'].includes(a.status)).length;
+                if (usedCapacity >= (selectedService?.capacity || 1)) { alert(`ช่วงเวลานี้เต็มแล้ว (รับได้ ${selectedService?.capacity || 1} คนต่อสลอต)`); return; }
+                const newAppoint = {
+                    id: Date.now(),
+                    ...formData,
+                    patient_id: null,
+                    therapist_id: parseInt(formData.therapist_id),
+                    service_type_id: parseInt(formData.service_type_id),
+                    status: 'รอนัด',
+                    created_by: user.id,
+                    created_at: new Date().toISOString(),
+                    appointment_day: new Date(`${formData.appointment_date}T00:00:00`).toLocaleDateString('th-TH',{weekday:'long'}),
+                    cash_paid: 0
+                };
+                try {
+                    await appendToGoogleSheet('appointments', newAppoint);
+                    setDb(prev => ({ ...prev, appointments: [...prev.appointments, newAppoint] }));
+                    setFilterDate(formData.appointment_date);
+                    setIsModalOpen(false);
+                } catch(e) { alert('บันทึกนัดหมายไม่สำเร็จ'); }
+            };
+
+            const handleRescheduleSave = (e) => {
+                e.preventDefault();
+                
+                // Update appointment
+                setDb(prev => {
+                    const newApps = prev.appointments.map(a => {
+                        if(a.id === selectedAppoint.id) {
+                            return {
+                                ...a,
+                                status: 'เลื่อนนัด',
+                                appointment_date: rescheduleData.new_date,
+                                appointment_time: rescheduleData.new_time,
+                                therapist_id: parseInt(rescheduleData.new_therapist_id)
+                            }
+                        }
+                        return a;
+                    });
+
+                    // Add to history
+                    const newHistory = [...prev.history, {
+                        id: Date.now(),
+                        appointment_id: selectedAppoint.id,
+                        old_date: selectedAppoint.appointment_date,
+                        new_date: rescheduleData.new_date,
+                        old_time: selectedAppoint.appointment_time,
+                        new_time: rescheduleData.new_time,
+                        old_therapist: selectedAppoint.therapist_id,
+                        new_therapist: parseInt(rescheduleData.new_therapist_id),
+                        reason: rescheduleData.reason,
+                        changed_by: user.id,
+                        changed_at: new Date().toISOString()
+                    }];
+
+                    return { ...prev, appointments: newApps, history: newHistory };
+                });
+                
+                setIsRescheduleOpen(false);
+            };
+
+            return (
+                <div className="space-y-6">
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                        <h2 className="text-2xl font-bold text-gray-800">ตารางนัดหมาย</h2>
+                        <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+                            <div className="relative flex-1 md:w-64">
+                                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
+                                    <Icon.Search />
+                                </div>
+                                <input 
+                                    type="text" 
+                                    placeholder="ค้นหาชื่อหรือเบอร์โทร..." 
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    className="pl-10 w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-primary focus:border-primary"
+                                />
+                            </div>
+                            <input 
+                                type="date" 
+                                value={filterDate} 
+                                onChange={(e) => setFilterDate(e.target.value)}
+                                className="border border-gray-300 rounded-lg px-4 py-2 focus:ring-primary focus:border-primary"
+                            />
+                            <Button onClick={() => setIsModalOpen(true)}>
+                                <Icon.Plus /> ลงนัดผู้ป่วย
+                            </Button>
+                        </div>
+                    </div>
+
+                    <Card className="p-0 overflow-hidden">
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm text-left">
+                                <thead className="bg-gray-50 text-gray-700 border-b">
+                                    <tr>
+                                        <th className="py-4 px-6 font-semibold">เวลา</th>
+                                        <th className="py-4 px-6 font-semibold">ชื่อ-สกุล / เบอร์โทร</th>
+                                        <th className="py-4 px-6 font-semibold">บริการ</th>
+                                        <th className="py-4 px-6 font-semibold">ผู้ให้บริการ</th>
+                                        <th className="py-4 px-6 font-semibold">สิทธิ์รักษา</th>
+                                        <th className="py-4 px-6 font-semibold">สถานะ</th>
+                                        <th className="py-4 px-6 font-semibold">ชำระเอง (บาท)</th>
+                                        <th className="py-4 px-6 font-semibold text-center">การแก้ไข</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                    {displayData.length === 0 ? (
+                                        <tr><td colSpan="8" className="py-8 text-center text-gray-500">ไม่มีนัดหมายในวันนี้</td></tr>
+                                    ) : displayData.map((item) => (
+                                        <tr key={item.id} className="hover:bg-gray-50 transition-colors">
+                                            <td className="py-3 px-6 font-medium text-gray-900">{item.appointment_time}</td>
+                                            <td className="py-3 px-6">
+                                                <div className="font-medium text-gray-900">{item.patient.first_name} {item.patient.last_name}</div>
+                                                <div className="text-xs text-gray-500">โทร: {item.patient.phone || '-'}</div>
+                                            </td>
+                                            <td className="py-3 px-6 text-gray-600">{item.service.service_name}</td>
+                                            <td className="py-3 px-6 text-gray-600">{item.therapist.first_name}</td>
+                                            <td className="py-3 px-6">{item.treatment_right || 'บัตรทอง'}</td>
+                                            <td className="py-3 px-6"><div className="flex flex-col gap-1">{['ตามนัด','ผิดนัด','เลื่อน'].map(status=><label key={status} className={`flex items-center gap-2 px-2 py-1 rounded cursor-pointer ${item.status===status?getStatusColor(status):'text-gray-600'}`}><input type="radio" name={`status-${item.id}`} checked={item.status===status} onChange={()=>appendAppointmentUpdate(item,{status})}/><span>{status}</span></label>)}</div></td>
+                                            <td className="py-3 px-6"><div className="flex flex-col gap-1"><input type="number" min="0" step="1" value={cashDrafts[item.id] ?? (Number(item.cash_paid)||0)} onChange={e=>setCashDrafts(prev=>({...prev,[item.id]:e.target.value}))} onBlur={()=>saveCashPaid(item)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();e.currentTarget.blur();}}} className="w-28 border border-gray-300 rounded-lg px-3 py-2 text-right" aria-label={`จำนวนเงินชำระเองของ ${item.patient.first_name}`}/><span className="text-[11px] text-gray-400">บันทึกอัตโนมัติ</span></div></td>
+                                            <td className="py-3 px-6 text-center">
+                                                <span className="text-xs text-gray-500">แก้ไข/ลบใน Google Sheet</span>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </Card>
+
+                    {/* New Appointment Modal */}
+                    <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="➕ ลงนัดผู้ป่วยใหม่">
+                        <form onSubmit={handleSaveNew} className="space-y-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4"><div><label className="block text-sm font-medium text-gray-700 mb-1">ชื่อ-สกุลผู้ป่วย</label><input required value={formData.patient_name} onChange={e=>setFormData({...formData,patient_name:e.target.value})} placeholder="กรอกชื่อและนามสกุล" className="w-full border border-gray-300 rounded-lg px-4 py-2"/></div><div><label className="block text-sm font-medium text-gray-700 mb-1">เบอร์โทรศัพท์</label><input required type="tel" value={formData.patient_phone} onChange={e=>setFormData({...formData,patient_phone:e.target.value})} placeholder="เช่น 0812345678" className="w-full border border-gray-300 rounded-lg px-4 py-2"/></div></div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">วันที่นัด</label>
+                                    <input type="date" required className="w-full border border-gray-300 rounded-lg px-4 py-2" value={formData.appointment_date} onChange={e => setFormData({...formData, appointment_date: e.target.value})} />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">เวลานัด</label>
+                                    <select required className="w-full border border-gray-300 rounded-lg px-4 py-2" value={formData.appointment_time} onChange={e => setFormData({...formData, appointment_time: e.target.value})}>{db.customSlots.map(s=><option key={s.id} value={s.start}>{s.label}</option>)}</select>
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">ประเภทบริการ</label>
+                                <select required className="w-full border border-gray-300 rounded-lg px-4 py-2" value={formData.service_type_id} onChange={e => setFormData({...formData, service_type_id: e.target.value})}>
+                                    {db.services.filter(s=>s.active).map(s => <option key={s.id} value={s.id}>{s.service_name} · {s.duration} นาที · รับ {s.capacity} คน/สลอต</option>)}
+                                </select>
+                            </div>
+                            <div><label className="block text-sm font-medium text-gray-700 mb-1">สิทธิ์รักษา</label><select value={formData.treatment_right} onChange={e=>setFormData({...formData,treatment_right:e.target.value})} className="w-full border border-gray-300 rounded-lg px-4 py-2"><option>บัตรทอง</option><option>ข้าราชการ</option><option>ประกันสังคม</option><option>ชำระเงินเอง</option><option>อื่นๆ</option></select></div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">ผู้ให้บริการ (หมอนวด)</label>
+                                <select required className="w-full border border-gray-300 rounded-lg px-4 py-2" value={formData.therapist_id} onChange={e => setFormData({...formData, therapist_id: e.target.value})}>
+                                    <option value="">-- เลือกหมอนวด --</option>
+                                    {db.therapists.filter(t => !db.leaves.some(l => Number(l.therapist_id) === Number(t.id) && normalizeDateKey(l.date) === formData.appointment_date)).map(t => {
+                                        // Calculate current load for selected date
+                                        const load = db.appointments.filter(a => normalizeDateKey(a.appointment_date) === formData.appointment_date && Number(a.therapist_id) === Number(t.id) && !['ยกเลิก','ผิดนัด','เลื่อน','เลื่อนนัด'].includes(a.status)).length;
+                                        const isLeave = db.leaves.some(l => Number(l.therapist_id) === Number(t.id) && normalizeDateKey(l.date) === formData.appointment_date);
+                                        return <option key={t.id} value={t.id} disabled={isLeave || load >= t.max_patients_per_day}>{t.first_name} ({isLeave ? 'ลา / ปิดรับจอง' : `${load}/${t.max_patients_per_day} คิว`})</option>
+                                    })}
+                                </select>
+                                <p className="text-xs text-gray-500 mt-1">* ระบบจะคำนวณคิวว่างตามวันที่เลือกให้อัตโนมัติ</p>
+                            </div>
+                            <div className="pt-4 flex justify-end gap-3">
+                                <Button variant="outline" onClick={() => setIsModalOpen(false)}>ยกเลิก</Button>
+                                <Button type="submit">บันทึกการนัด</Button>
+                            </div>
+                        </form>
+                    </Modal>
+
+                    {/* Reschedule Modal */}
+                    <Modal isOpen={isRescheduleOpen} onClose={() => setIsRescheduleOpen(false)} title="🔄 เลื่อนนัดผู้ป่วย">
+                        {selectedAppoint && (
+                            <form onSubmit={handleRescheduleSave} className="space-y-4">
+                                <div className="bg-blue-50 p-3 rounded-lg border border-blue-100 text-sm mb-4">
+                                    <p><strong>ผู้ป่วย:</strong> {selectedAppoint.patient.first_name} {selectedAppoint.patient.last_name}</p>
+                                    <p><strong>นัดเดิม:</strong> {formatThaiDate(selectedAppoint.appointment_date)} เวลา {selectedAppoint.appointment_time}</p>
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">วันที่นัดใหม่</label>
+                                        <input type="date" required className="w-full border border-gray-300 rounded-lg px-4 py-2" value={rescheduleData.new_date} onChange={e => setRescheduleData({...rescheduleData, new_date: e.target.value})} />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">เวลาใหม่</label>
+                                        <input type="time" required className="w-full border border-gray-300 rounded-lg px-4 py-2" value={rescheduleData.new_time} onChange={e => setRescheduleData({...rescheduleData, new_time: e.target.value})} />
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">ผู้ให้บริการใหม่</label>
+                                    <select required className="w-full border border-gray-300 rounded-lg px-4 py-2" value={rescheduleData.new_therapist_id} onChange={e => setRescheduleData({...rescheduleData, new_therapist_id: e.target.value})}>
+                                        {db.therapists.map(t => <option key={t.id} value={t.id}>{t.first_name}</option>)}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">เหตุผลการเลื่อน</label>
+                                    <select required className="w-full border border-gray-300 rounded-lg px-4 py-2" value={rescheduleData.reason} onChange={e => setRescheduleData({...rescheduleData, reason: e.target.value})}>
+                                        <option value="">-- เลือกเหตุผล --</option>
+                                        <option value="ผู้ป่วยติดธุระ">ผู้ป่วยติดธุระ</option>
+                                        <option value="ผู้ป่วยไม่สะดวก">ผู้ป่วยไม่สะดวก</option>
+                                        <option value="แพทย์/เจ้าหน้าที่ขอเลื่อน">แพทย์/เจ้าหน้าที่ขอเลื่อน</option>
+                                        <option value="หมอนวดลา">หมอนวดลา</option>
+                                    </select>
+                                </div>
+                                <div className="pt-4 flex justify-end gap-3">
+                                    <Button variant="outline" onClick={() => setIsRescheduleOpen(false)}>ยกเลิก</Button>
+                                    <Button type="submit">บันทึกเลื่อนนัด</Button>
+                                </div>
+                            </form>
+                        )}
+                    </Modal>
+                </div>
+            );
+        };
+
+        const ReschedulesList = () => {
+             const { db, selectedDate, setSelectedDate } = useContext(AppContext);
+             const rescheduled = db.appointments.filter(a=>normalizeDateKey(a.appointment_date)===selectedDate && ['เลื่อน','เลื่อนนัด'].includes(a.status)).sort((a,b)=>String(a.appointment_time).localeCompare(String(b.appointment_time)));
+             return (
+                 <div className="space-y-6">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-3"><div><h2 className="text-2xl font-bold text-gray-800">ผู้ป่วยเลื่อนนัด</h2><p className="text-sm text-gray-500">ข้อมูลประจำวันที่ {formatFullThaiDate(selectedDate)}</p></div><input type="date" value={selectedDate} onChange={e=>setSelectedDate(e.target.value)} className="border border-gray-300 rounded-lg px-4 py-2"/></div>
+                    <Card className="p-0 overflow-hidden">
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm text-left">
+                                <thead className="bg-gray-50 text-gray-700 border-b">
+                                    <tr>
+                                        <th className="py-4 px-6 font-semibold">ผู้ป่วย</th>
+                                        <th className="py-4 px-6 font-semibold">วันและเวลา</th>
+                                        <th className="py-4 px-6 font-semibold">กิจกรรม</th>
+                                        <th className="py-4 px-6 font-semibold">หมอนวด</th>
+                                        <th className="py-4 px-6 font-semibold">สถานะ</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                    {rescheduled.length===0?<tr><td colSpan="5" className="py-8 text-center text-gray-500">ไม่มีผู้ป่วยเลื่อนนัด</td></tr>:rescheduled.map(a => {
+                                        const p = db.patients.find(pt => String(pt.id) === String(a.patient_id));
+                                        const t = db.therapists.find(th => Number(th.id) === Number(a.therapist_id));
+                                        const s = db.services.find(service => Number(service.id) === Number(a.service_type_id));
+                                        return (
+                                        <tr key={a.id} className="hover:bg-gray-50">
+                                            <td className="py-3 px-6">{a.patient_name || (p ? `${p.first_name} ${p.last_name}` : '-')}</td>
+                                            <td className="py-3 px-6">{formatThaiDate(a.appointment_date)} {a.appointment_time}</td>
+                                            <td className="py-3 px-6">{s?.service_name || '-'}</td>
+                                            <td className="py-3 px-6">{t?.first_name || '-'}</td>
+                                            <td className="py-3 px-6"><span className={`px-3 py-1 rounded-full text-xs ${getStatusColor(a.status)}`}>🔵 {a.status}</span></td>
+                                        </tr>
+                                    )})}
+                                </tbody>
+                            </table>
+                        </div>
+                    </Card>
+                 </div>
+             )
+        }
+        
+        const ReportsExport = () => {
+             const handleExportCSV = () => {
+                 // Simple mock CSV export
+                 const csvContent = "data:text/csv;charset=utf-8,\uFEFF" + "รายงานการมารับบริการประจำเดือน\n";
+                 const encodedUri = encodeURI(csvContent);
+                 const link = document.createElement("a");
+                 link.setAttribute("href", encodedUri);
+                 link.setAttribute("download", "report.csv");
+                 document.body.appendChild(link);
+                 link.click();
+             }
+
+             return (
+                 <div className="space-y-6">
+                    <h2 className="text-2xl font-bold text-gray-800">ออกรายงาน</h2>
+                    <Card className="flex flex-col items-center justify-center py-20 text-center">
+                        <Icon.Download className="w-16 h-16 text-primary mb-4" />
+                        <h3 className="text-xl font-bold mb-2">ดาวน์โหลดรายงานข้อมูลดิบ (Excel/CSV)</h3>
+                        <p className="text-gray-500 mb-6">ข้อมูลผู้มารับบริการทั้งหมด พร้อมสถานะและหมอนวดผู้ให้บริการ</p>
+                        <Button onClick={handleExportCSV} className="w-48">
+                            <Icon.Download /> Export to CSV
+                        </Button>
+                    </Card>
+                 </div>
+             )
+        }
+
+        // --- Main App Component ---
+        const App = () => {
+            const [user, setUser] = useState(null);
+            const [view, setView] = useState('dashboard');
+            const [selectedDate, setSelectedDateState] = useState(() => localStorage.getItem('thaiMassageSelectedDate') || todayStr);
+            const [googleSheetUrl, setGoogleSheetUrlState] = useState(() => { localStorage.setItem('thaiMassageGoogleSheetUrl', DEFAULT_GOOGLE_SHEET_WEB_APP_URL); return DEFAULT_GOOGLE_SHEET_WEB_APP_URL; });
+            const [googleSyncStatus, setGoogleSyncStatus] = useState('พร้อมใช้งาน');
+            const [googleReady, setGoogleReady] = useState(false);
+            const syncBusyRef = useRef(false);
+            const googleApiVersionRef = useRef('');
+            const pendingAddsRef = useRef({});
+            const emptyAppointmentReadsRef = useRef(0);
+            
+            // Database State
+            const [db, setDb] = useState(() => { const defaults = {
+                users: MOCK_USERS,
+                patients: MOCK_PATIENTS,
+                therapists: MOCK_THERAPISTS,
+                services: MOCK_SERVICES,
+                appointments: MOCK_APPOINTMENTS,
+                appointmentUpdates: [],
+                history: MOCK_HISTORY,
+                leaves: [],
+                incidents: [],
+                customSlots: [
+                    {id:1,start:'08:30',end:'09:30',label:'08:30-09:30'},
+                    {id:2,start:'09:30',end:'10:30',label:'09:30-10:30'},
+                    {id:3,start:'10:30',end:'11:30',label:'10:30-11:30'},
+                    {id:4,start:'13:00',end:'14:00',label:'13:00-14:00'},
+                    {id:5,start:'14:00',end:'15:00',label:'14:00-15:00'},
+                    {id:6,start:'15:00',end:'16:00',label:'15:00-16:00'}
+                ]
+            }; try { const saved = localStorage.getItem('thaiMassageDatabase'); return saved ? {...defaults,...JSON.parse(saved)} : defaults; } catch(e) { return defaults; } });
+
+            const setGoogleSheetUrl = value => { setGoogleSheetUrlState(value); localStorage.setItem('thaiMassageGoogleSheetUrl', value); };
+            const setSelectedDate = value => { setSelectedDateState(value); localStorage.setItem('thaiMassageSelectedDate', value); };
+            const loadFromGoogleSheet = () => {
+                if (!googleSheetUrl) { setGoogleReady(true); return; }
+                if (syncBusyRef.current) return;
+                setGoogleSyncStatus('กำลังดึงข้อมูล');
+                const callbackName = `googleSheetCallback_${Date.now()}`;
+                const script = document.createElement('script');
+                let finished = false;
+                const cleanup = () => { if(script.parentNode) script.parentNode.removeChild(script); delete window[callbackName]; };
+                const timeout = setTimeout(() => { if(!finished){ finished=true; cleanup(); setGoogleReady(true); setGoogleSyncStatus('ดึงข้อมูลไม่สำเร็จ'); } }, 8000);
+                window[callbackName] = response => {
+                    if(finished) return; finished=true; clearTimeout(timeout); cleanup();
+                    googleApiVersionRef.current = response?.apiVersion || '';
+                    const validAppointmentPayload = response?.ok && response.initialized && response.apiVersion === EXPECTED_APPS_SCRIPT_VERSION && response.appointmentSource === 'appointments' && response.appointmentMeta?.valid === true && Array.isArray(response?.data?.appointments);
+                    if(validAppointmentPayload) {
+                        const deferEmptyAppointments = response.data.appointments.length === 0 && emptyAppointmentReadsRef.current < 1;
+                        emptyAppointmentReadsRef.current = response.data.appointments.length === 0 ? emptyAppointmentReadsRef.current + 1 : 0;
+                        if (!Array.isArray(response.presentCollections)) {
+                            setGoogleSyncStatus('Apps Script เป็นเวอร์ชันเก่า กรุณา Deploy เวอร์ชันใหม่');
+                        } else {
+                            setDb(current => {
+                                localStorage.setItem('thaiMassageDatabaseBeforeGooglePull', JSON.stringify(current));
+                                const remoteData = {};
+                                response.presentCollections.forEach(name => {
+                                    if (Object.prototype.hasOwnProperty.call(response.data, name)) {
+                                        if(name === 'appointments' && deferEmptyAppointments) return;
+                                        let remoteRows = Array.isArray(response.data[name]) ? response.data[name] : [];
+                                        if(name === 'appointments') remoteRows = remoteRows.map(row => ({...row,appointment_date:normalizeDateKey(row.appointment_date) || row.appointment_date}));
+                                        const remoteIds = new Set(remoteRows.map(row => String(row.id)));
+                                        const pendingRows = (pendingAddsRef.current[name] || []).filter(row => !remoteIds.has(String(row.id)));
+                                        pendingAddsRef.current[name] = pendingRows;
+                                        remoteData[name] = [...remoteRows, ...pendingRows];
+                                    }
+                                });
+                                if (!Array.isArray(remoteData.users) || remoteData.users.length === 0) {
+                                    remoteData.users = current.users?.length ? current.users : MOCK_USERS;
+                                }
+                                return {...current,...remoteData};
+                            });
+                            setGoogleSyncStatus(deferEmptyAppointments ? 'Google Sheet ส่งรายการนัดว่างครั้งแรก ระบบเก็บข้อมูลเดิมไว้และจะตรวจซ้ำ' : 'อัปเดตจาก Google Sheet แล้ว');
+                        }
+                    } else if (response?.ok && response.apiVersion !== EXPECTED_APPS_SCRIPT_VERSION) setGoogleSyncStatus(`กรุณา Deploy Apps Script เวอร์ชัน ${EXPECTED_APPS_SCRIPT_VERSION}`);
+                    else setGoogleSyncStatus(response?.error ? `ไม่ใช้ข้อมูลล่าสุด: ${response.error}` : 'ข้อมูลจาก Google Sheet ไม่สมบูรณ์ ระบบเก็บข้อมูลเดิมไว้');
+                    setGoogleReady(true);
+                };
+                script.onerror = () => { if(!finished){ finished=true; clearTimeout(timeout); cleanup(); setGoogleReady(true); setGoogleSyncStatus('ดึงข้อมูลไม่สำเร็จ'); } };
+                script.src = `${googleSheetUrl}?callback=${callbackName}&t=${Date.now()}`;
+                document.body.appendChild(script);
+            };
+            const syncToGoogleSheet = async () => {
+                loadFromGoogleSheet();
+            };
+            const appendToGoogleSheet = async (collection, record) => {
+                if (!googleSheetUrl) throw new Error('ยังไม่ได้ตั้งค่า Google Sheet URL');
+                if (googleApiVersionRef.current !== EXPECTED_APPS_SCRIPT_VERSION) { setGoogleSyncStatus(`กรุณา Deploy Apps Script เวอร์ชันล่าสุด (${EXPECTED_APPS_SCRIPT_VERSION})`); throw new Error('Apps Script version mismatch'); }
+                if (collection !== 'appointmentUpdates') pendingAddsRef.current[collection] = [...(pendingAddsRef.current[collection] || []), record];
+                syncBusyRef.current = true; setGoogleSyncStatus('กำลังเพิ่มข้อมูล');
+                try {
+                    const body = new URLSearchParams(); body.set('collection', collection); body.set('record', JSON.stringify(record));
+                    await fetch(googleSheetUrl, {method:'POST',mode:'no-cors',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:body.toString()});
+                    setGoogleSyncStatus('เพิ่มข้อมูลแล้ว');
+                    setTimeout(loadFromGoogleSheet, 1800);
+                } catch(e) { if(collection !== 'appointmentUpdates') pendingAddsRef.current[collection]=(pendingAddsRef.current[collection]||[]).filter(row=>String(row.id)!==String(record.id)); setGoogleSyncStatus('เพิ่มข้อมูลไม่สำเร็จ'); throw e; }
+                finally { syncBusyRef.current = false; }
+            };
+
+            useEffect(() => {
+                localStorage.setItem('thaiMassageDatabase', JSON.stringify(db));
+            }, [db]);
+
+            useEffect(() => {
+                setGoogleReady(false);
+                loadFromGoogleSheet();
+                const interval = setInterval(loadFromGoogleSheet, 15000);
+                return () => clearInterval(interval);
+            }, [googleSheetUrl]);
+
+            // Login Handler
+            const handleLogin = (e) => {
+                e.preventDefault();
+                const form = new FormData(e.target);
+                const u = form.get('username');
+                const p = form.get('password');
+                const loginUsers = db.users?.length ? db.users : MOCK_USERS;
+                const foundUser = loginUsers.find(x =>
+                    String(x.username ?? '').trim() === String(u ?? '').trim() &&
+                    String(x.password ?? '').trim() === String(p ?? '').trim() &&
+                    x.active !== false && String(x.active).toLowerCase() !== 'false'
+                );
+                if (foundUser) {
+                    setUser(foundUser);
+                    setView(foundUser.role === 'Executive' ? 'executive' : 'dashboard');
+                } else {
+                    alert('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง');
+                }
+            };
+
+            if (!user) {
+                return (
+                    <div className="min-h-screen flex items-center justify-center bg-emerald-50">
+                        <div className="max-w-md w-full bg-white p-8 rounded-2xl shadow-lg border border-emerald-100">
+                            <div className="text-center mb-8">
+                                <img src="welcome-massage-team.png" alt="ตัวการ์ตูนผู้หญิงและผู้ชายไหว้ต้อนรับ" className="w-48 h-72 object-contain rounded-2xl mx-auto mb-5 border-4 border-emerald-100 shadow-md bg-emerald-50" />
+                                <h1 className="text-2xl font-bold text-gray-800">ระบบนัดหมายแพทย์แผนไทย</h1>
+                                <p className="text-gray-500 mt-2">โรงพยาบาลชุมแสง</p>
+                            </div>
+                            <form onSubmit={handleLogin} className="space-y-5">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Username</label>
+                                    <input name="username" type="text" required defaultValue="admin" className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-primary focus:border-primary outline-none transition" />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                                    <input name="password" type="password" required defaultValue="123" className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-primary focus:border-primary outline-none transition" />
+                                </div>
+                                <Button type="submit" className="w-full py-3 text-lg">เข้าสู่ระบบ</Button>
+                                <div className="text-center mt-4 text-xs text-gray-400">
+                                    *Demo accounts: admin/123, staff1/123, exec/123
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                );
+            }
+
+            // Render active view
+            const renderView = () => {
+                switch(view) {
+                    case 'dashboard': return <DashboardStaff />;
+                    case 'executive': return <DashboardExecutive />;
+                    case 'appointments': return <Appointments />;
+                    case 'reschedules': return <ReschedulesList />;
+                    case 'therapists': return <Therapists />;
+                    case 'risks': return <RiskReports />;
+                    case 'reports': return <ReportsExport />;
+                    default: return <div className="p-8 text-center text-gray-500">ระบบกำลังพัฒนาในส่วนนี้</div>;
+                }
+            };
+
+            return (
+                <AppContext.Provider value={{ db, setDb, user, googleSheetUrl, setGoogleSheetUrl, googleSyncStatus, syncToGoogleSheet, loadFromGoogleSheet, appendToGoogleSheet, selectedDate, setSelectedDate }}>
+                    <Layout view={view} setView={setView} currentView={view} user={user} onLogout={() => setUser(null)}>
+                        {renderView()}
+                    </Layout>
+                </AppContext.Provider>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
