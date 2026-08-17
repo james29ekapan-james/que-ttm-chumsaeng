@@ -198,6 +198,23 @@
             const parsed=new Date(text);
             return Number.isNaN(parsed.getTime())?'':dateKeyFromParts(parsed.getFullYear(),parsed.getMonth()+1,parsed.getDate());
         };
+        const normalizeTimeMinutes = value => {
+            if(value===null||value===undefined||value==='') return null;
+            if(value instanceof Date&&!Number.isNaN(value.getTime())) return value.getHours()*60+value.getMinutes();
+            if(typeof value==='number') {
+                const fraction=((value%1)+1)%1;
+                if(value>=0&&value<1||value>1&&fraction>0) return Math.round(fraction*1440)%1440;
+                if(value>=0&&value<=2359) { const h=Math.floor(value/100),m=value%100; if(h<24&&m<60)return h*60+m; }
+            }
+            const thaiDigits={'๐':'0','๑':'1','๒':'2','๓':'3','๔':'4','๕':'5','๖':'6','๗':'7','๘':'8','๙':'9'};
+            const text=String(value).trim().replace(/[๐-๙]/g,c=>thaiDigits[c]);
+            let match=text.match(/T(\d{1,2}):(\d{2})/i)||text.match(/(?:^|\s)(\d{1,2})[:.](\d{2})(?:\D|$)/);
+            if(!match) match=text.match(/^([01]?\d|2[0-3])(\d{2})$/);
+            if(!match) return null;
+            const h=Number(match[1]),m=Number(match[2]);
+            return h<24&&m<60?h*60+m:null;
+        };
+        const formatTimeKey = value => { const minutes=normalizeTimeMinutes(value); return minutes===null?String(value||''):`${String(Math.floor(minutes/60)).padStart(2,'0')}:${String(minutes%60).padStart(2,'0')}`; };
         const formatThaiDate = value => {
             const key=normalizeDateKey(value); if(!key) return '';
             const [year,month,day]=key.split('-').map(Number);
@@ -390,7 +407,7 @@
                 const therapistId=Number(quickAppointment.therapist_id), serviceId=Number(quickAppointment.service_type_id);
                 if(db.leaves.some(l=>Number(l.therapist_id)===therapistId&&normalizeDateKey(l.date)===selectedDate)) return alert('หมอนวดลาในวันที่เลือก ระบบปิดรับจองแล้ว');
                 const service=db.services.find(s=>Number(s.id)===serviceId);
-                const used=db.appointments.filter(a=>Number(a.therapist_id)===therapistId&&normalizeDateKey(a.appointment_date)===selectedDate&&a.appointment_time===quickAppointment.appointment_time&&Number(a.service_type_id)===serviceId&&!['ยกเลิก','ผิดนัด','เลื่อน','เลื่อนนัด'].includes(a.status)).length;
+                const used=db.appointments.filter(a=>Number(a.therapist_id)===therapistId&&normalizeDateKey(a.appointment_date)===selectedDate&&normalizeTimeMinutes(a.appointment_time)===normalizeTimeMinutes(quickAppointment.appointment_time)&&Number(a.service_type_id)===serviceId&&!['ยกเลิก','ผิดนัด','เลื่อน','เลื่อนนัด'].includes(a.status)).length;
                 if(used >= (Number(service?.capacity)||1)) return alert(`ช่วงเวลานี้เต็มแล้ว (รับได้ ${service?.capacity || 1} คนต่อสลอต)`);
                 const record={id:Date.now(),patient_name:quickAppointment.patient_name.trim(),patient_phone:quickAppointment.patient_phone.trim(),patient_id:null,therapist_id:therapistId,appointment_date:selectedDate,appointment_time:quickAppointment.appointment_time,service_type_id:serviceId,treatment_right:quickAppointment.treatment_right,status:'รอนัด',note:'',cash_paid:0,created_by:user.id,created_at:new Date().toISOString(),appointment_day:new Date(`${selectedDate}T00:00:00`).toLocaleDateString('th-TH',{weekday:'long'})};
                 try { await appendToGoogleSheet('appointments',record); setDb(prev=>({...prev,appointments:[...prev.appointments,record]})); setQuickAppointmentOpen(false); } catch(error) { alert('บันทึกนัดหมายไม่สำเร็จ'); }
@@ -476,9 +493,10 @@
                                         <td className="py-3 px-4 font-semibold text-primary sticky left-0 bg-white z-10 whitespace-nowrap">{t.first_name} {t.last_name}</td>
                                         {timeSlots.map(slot => {
                                             const isLeave = db.leaves.some(l => Number(l.therapist_id) === Number(t.id) && normalizeDateKey(l.date) === selectedDate);
-                                            const apps = todaysAppointments.filter(a => Number(a.therapist_id) === Number(t.id) && a.appointment_time >= slot.start && a.appointment_time < slot.end && !['ยกเลิก','ผิดนัด','เลื่อน','เลื่อนนัด'].includes(a.status));
+                                            const slotStart=normalizeTimeMinutes(slot.start),slotEnd=normalizeTimeMinutes(slot.end);
+                                            const apps = todaysAppointments.filter(a => {const appointmentTime=normalizeTimeMinutes(a.appointment_time);return Number(a.therapist_id)===Number(t.id)&&appointmentTime!==null&&slotStart!==null&&slotEnd!==null&&appointmentTime>=slotStart&&appointmentTime<slotEnd&&!['ยกเลิก','ผิดนัด','เลื่อน','เลื่อนนัด'].includes(a.status);});
                                             return <td key={slot.id} className="py-3 px-4 text-center">
-                                                {isLeave ? <span className="inline-block rounded-lg bg-red-50 text-red-700 px-3 py-2 font-medium">ลา</span> : <div className="space-y-2">{apps.length ? <div className="space-y-1">{apps.map(app=>{const patient=db.patients.find(p=>p.id===app.patient_id);const service=db.services.find(s=>Number(s.id)===Number(app.service_type_id));return <div key={app.id} className="rounded-lg bg-emerald-50 border border-emerald-100 px-3 py-2 text-left"><div className="font-semibold text-emerald-800">{app.patient_name || `${patient?.first_name || ''} ${patient?.last_name || ''}`}</div><div className="text-xs font-medium text-teal-700">{service?.service_name || 'ไม่ระบุกิจกรรม'}</div><div className="text-xs text-emerald-600">{app.appointment_time} · {app.status}</div></div>})}</div> : <span className="text-gray-400">คิวว่าง</span>}<button type="button" onClick={()=>openQuickAppointment(t,slot)} className="w-full rounded-lg border border-dashed border-teal-300 px-2 py-1.5 text-xs font-medium text-primary hover:bg-emerald-50">＋ เพิ่มนัด</button></div>}
+                                                {isLeave ? <span className="inline-block rounded-lg bg-red-50 text-red-700 px-3 py-2 font-medium">ลา</span> : <div className="space-y-2">{apps.length ? <div className="space-y-1">{apps.map(app=>{const patient=db.patients.find(p=>String(p.id)===String(app.patient_id));const service=db.services.find(s=>Number(s.id)===Number(app.service_type_id));const patientName=app.patient_name||[patient?.first_name,patient?.last_name].filter(Boolean).join(' ')||'ไม่ระบุชื่อผู้ป่วย';return <div key={app.id} className="rounded-lg bg-emerald-50 border border-emerald-100 px-3 py-2 text-left"><div className="font-semibold text-emerald-800">{patientName}</div><div className="text-xs font-medium text-teal-700">{service?.service_name || 'ไม่ระบุกิจกรรม'}</div><div className="text-xs text-emerald-600">{formatTimeKey(app.appointment_time)} · {app.status}</div></div>})}</div> : <span className="text-gray-400">คิวว่าง</span>}<button type="button" onClick={()=>openQuickAppointment(t,slot)} className="w-full rounded-lg border border-dashed border-teal-300 px-2 py-1.5 text-xs font-medium text-primary hover:bg-emerald-50">＋ เพิ่มนัด</button></div>}
                                             </td>;
                                         })}
                                     </tr>)}
@@ -734,7 +752,7 @@
                     );
                 }
                 // Sort by time
-                return data.sort((a,b) => a.appointment_time.localeCompare(b.appointment_time));
+                return data.sort((a,b) => (normalizeTimeMinutes(a.appointment_time)??9999)-(normalizeTimeMinutes(b.appointment_time)??9999));
             }, [db, filterDate, searchQuery]);
 
             const appendAppointmentUpdate = async (item, changes) => {
@@ -762,7 +780,7 @@
                     alert('หมอนวดท่านนี้ลาในวันที่เลือก ระบบปิดรับจองแล้ว'); return;
                 }
                 const selectedService = db.services.find(s => s.id === parseInt(formData.service_type_id));
-                const usedCapacity = db.appointments.filter(a => Number(a.therapist_id) === therapistId && normalizeDateKey(a.appointment_date) === formData.appointment_date && a.appointment_time === formData.appointment_time && Number(a.service_type_id) === parseInt(formData.service_type_id) && !['ยกเลิก','ผิดนัด','เลื่อน','เลื่อนนัด'].includes(a.status)).length;
+                const usedCapacity = db.appointments.filter(a => Number(a.therapist_id) === therapistId && normalizeDateKey(a.appointment_date) === formData.appointment_date && normalizeTimeMinutes(a.appointment_time) === normalizeTimeMinutes(formData.appointment_time) && Number(a.service_type_id) === parseInt(formData.service_type_id) && !['ยกเลิก','ผิดนัด','เลื่อน','เลื่อนนัด'].includes(a.status)).length;
                 if (usedCapacity >= (selectedService?.capacity || 1)) { alert(`ช่วงเวลานี้เต็มแล้ว (รับได้ ${selectedService?.capacity || 1} คนต่อสลอต)`); return; }
                 const newAppoint = {
                     id: Date.now(),
@@ -980,7 +998,7 @@
 
         const ReschedulesList = () => {
              const { db, selectedDate, setSelectedDate } = useContext(AppContext);
-             const rescheduled = db.appointments.filter(a=>normalizeDateKey(a.appointment_date)===selectedDate && ['เลื่อน','เลื่อนนัด'].includes(a.status)).sort((a,b)=>String(a.appointment_time).localeCompare(String(b.appointment_time)));
+             const rescheduled = db.appointments.filter(a=>normalizeDateKey(a.appointment_date)===selectedDate && ['เลื่อน','เลื่อนนัด'].includes(a.status)).sort((a,b)=>(normalizeTimeMinutes(a.appointment_time)??9999)-(normalizeTimeMinutes(b.appointment_time)??9999));
              return (
                  <div className="space-y-6">
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-3"><div><h2 className="text-2xl font-bold text-gray-800">ผู้ป่วยเลื่อนนัด</h2><p className="text-sm text-gray-500">ข้อมูลประจำวันที่ {formatFullThaiDate(selectedDate)}</p></div><input type="date" value={selectedDate} onChange={e=>setSelectedDate(e.target.value)} className="border border-gray-300 rounded-lg px-4 py-2"/></div>
@@ -1055,7 +1073,7 @@
             const [googleReady, setGoogleReady] = useState(false);
             const syncBusyRef = useRef(false);
             const googleApiVersionRef = useRef('');
-            const pendingAddsRef = useRef({});
+            const pendingAddsRef = useRef((()=>{try{return JSON.parse(localStorage.getItem('thaiMassagePendingAdds')||'{}')||{};}catch(e){return {};}})());
             const emptyAppointmentReadsRef = useRef(0);
             
             // Database State
@@ -1114,6 +1132,7 @@
                                         remoteData[name] = [...remoteRows, ...pendingRows];
                                     }
                                 });
+                                localStorage.setItem('thaiMassagePendingAdds', JSON.stringify(pendingAddsRef.current));
                                 if (!Array.isArray(remoteData.users) || remoteData.users.length === 0) {
                                     remoteData.users = current.users?.length ? current.users : MOCK_USERS;
                                 }
@@ -1135,14 +1154,14 @@
             const appendToGoogleSheet = async (collection, record) => {
                 if (!googleSheetUrl) throw new Error('ยังไม่ได้ตั้งค่า Google Sheet URL');
                 if (googleApiVersionRef.current !== EXPECTED_APPS_SCRIPT_VERSION) { setGoogleSyncStatus(`กรุณา Deploy Apps Script เวอร์ชันล่าสุด (${EXPECTED_APPS_SCRIPT_VERSION})`); throw new Error('Apps Script version mismatch'); }
-                if (collection !== 'appointmentUpdates') pendingAddsRef.current[collection] = [...(pendingAddsRef.current[collection] || []), record];
+                if (collection !== 'appointmentUpdates') { pendingAddsRef.current[collection] = [...(pendingAddsRef.current[collection] || []), record]; localStorage.setItem('thaiMassagePendingAdds', JSON.stringify(pendingAddsRef.current)); }
                 syncBusyRef.current = true; setGoogleSyncStatus('กำลังเพิ่มข้อมูล');
                 try {
                     const body = new URLSearchParams(); body.set('collection', collection); body.set('record', JSON.stringify(record));
                     await fetch(googleSheetUrl, {method:'POST',mode:'no-cors',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:body.toString()});
                     setGoogleSyncStatus('เพิ่มข้อมูลแล้ว');
                     setTimeout(loadFromGoogleSheet, 1800);
-                } catch(e) { if(collection !== 'appointmentUpdates') pendingAddsRef.current[collection]=(pendingAddsRef.current[collection]||[]).filter(row=>String(row.id)!==String(record.id)); setGoogleSyncStatus('เพิ่มข้อมูลไม่สำเร็จ'); throw e; }
+                } catch(e) { if(collection !== 'appointmentUpdates') { pendingAddsRef.current[collection]=(pendingAddsRef.current[collection]||[]).filter(row=>String(row.id)!==String(record.id)); localStorage.setItem('thaiMassagePendingAdds', JSON.stringify(pendingAddsRef.current)); } setGoogleSyncStatus('เพิ่มข้อมูลไม่สำเร็จ'); throw e; }
                 finally { syncBusyRef.current = false; }
             };
 
