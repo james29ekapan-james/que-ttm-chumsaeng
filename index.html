@@ -750,6 +750,7 @@
             const [selectedAppoint, setSelectedAppoint] = useState(null);
             const [cashDrafts, setCashDrafts] = useState({});
             const [clinicalDrafts, setClinicalDrafts] = useState({});
+            const appointmentMutationRef = useRef({});
 
             // Form States
             const [formData, setFormData] = useState({
@@ -794,12 +795,21 @@
             }, [db, filterDate, searchQuery]);
 
             const appendAppointmentUpdate = async (item, changes) => {
+                const mutationId = `${Date.now()}-${Math.random()}`;
+                const original = Object.fromEntries(Object.keys(changes).map(key => [key, item[key]]));
+                appointmentMutationRef.current[String(item.id)] = mutationId;
+                setDb(prev => ({...prev, appointments:prev.appointments.map(a=>String(a.id)===String(item.id)?{...a,...changes}:a)}));
                 const update = {id:Date.now(), appointment_id:item.id, appointment_date:normalizeDateKey(item.appointment_date), ...changes, updated_at:new Date().toISOString()};
                 try {
                     await appendToGoogleSheet('appointmentUpdates', update);
-                    setDb(prev => ({...prev, appointments:prev.appointments.map(a=>String(a.id)===String(item.id)?{...a,...changes}:a)}));
                     return true;
-                } catch(e) { alert('บันทึกการแก้ไขไม่สำเร็จ กรุณาลองอีกครั้ง'); return false; }
+                } catch(e) {
+                    if (appointmentMutationRef.current[String(item.id)] === mutationId) {
+                        setDb(prev => ({...prev, appointments:prev.appointments.map(a=>String(a.id)===String(item.id)?{...a,...original}:a)}));
+                    }
+                    alert('บันทึกการแก้ไขไม่สำเร็จ ระบบคืนค่าเดิมแล้ว กรุณาลองอีกครั้ง');
+                    return false;
+                }
             };
 
             const saveCashPaid = async item => {
@@ -826,6 +836,17 @@
                 if (saved) setClinicalDrafts(prev=>{const next={...prev};delete next[item.id];return next;});
             };
 
+            const openReschedule = item => {
+                setSelectedAppoint(item);
+                setRescheduleData({
+                    new_date: normalizeDateKey(item.appointment_date) || filterDate,
+                    new_time: formatTimeKey(item.appointment_time),
+                    new_therapist_id: String(item.therapist_id || ''),
+                    reason: ''
+                });
+                setIsRescheduleOpen(true);
+            };
+
             const handleSaveNew = async (e) => {
                 e.preventDefault();
                 const therapistId = parseInt(formData.therapist_id);
@@ -847,51 +868,67 @@
                     appointment_day: new Date(`${formData.appointment_date}T00:00:00`).toLocaleDateString('th-TH',{weekday:'long'}),
                     cash_paid: 0
                 };
+                // แสดงผลทันที แล้วค่อยซิงก์ Google Sheet เบื้องหลัง
+                setDb(prev => ({ ...prev, appointments: [...prev.appointments, newAppoint] }));
+                setFilterDate(formData.appointment_date);
+                setIsModalOpen(false);
                 try {
                     await appendToGoogleSheet('appointments', newAppoint);
-                    setDb(prev => ({ ...prev, appointments: [...prev.appointments, newAppoint] }));
-                    setFilterDate(formData.appointment_date);
-                    setIsModalOpen(false);
-                } catch(e) { alert('บันทึกนัดหมายไม่สำเร็จ'); }
+                } catch(e) {
+                    setDb(prev => ({...prev, appointments:prev.appointments.filter(a=>String(a.id)!==String(newAppoint.id))}));
+                    alert('บันทึกนัดหมายไม่สำเร็จ ระบบนำรายการที่ยังไม่ซิงก์ออกแล้ว');
+                }
             };
 
-            const handleRescheduleSave = (e) => {
+            const handleRescheduleSave = async (e) => {
                 e.preventDefault();
-                
-                // Update appointment
+                const newTherapistId = parseInt(rescheduleData.new_therapist_id);
+                if (isTherapistOnLeave(db.leaves, newTherapistId, rescheduleData.new_date)) {
+                    alert('หมอนวดท่านนี้ลาในวันที่เลือก ระบบปิดรับจองแล้ว'); return;
+                }
+                const selectedService = db.services.find(s => Number(s.id) === Number(selectedAppoint.service_type_id));
+                const usedCapacity = db.appointments.filter(a => String(a.id)!==String(selectedAppoint.id) && Number(a.therapist_id)===newTherapistId && normalizeDateKey(a.appointment_date)===rescheduleData.new_date && normalizeTimeMinutes(a.appointment_time)===normalizeTimeMinutes(rescheduleData.new_time) && Number(a.service_type_id)===Number(selectedAppoint.service_type_id) && !['ยกเลิก','ผิดนัด','เลื่อน','เลื่อนนัด'].includes(a.status)).length;
+                if (usedCapacity >= (selectedService?.capacity || 1)) {
+                    alert(`ช่วงเวลานี้เต็มแล้ว (รับได้ ${selectedService?.capacity || 1} คนต่อสลอต)`); return;
+                }
+                const historyRecord = {
+                    id: Date.now(),
+                    appointment_id: selectedAppoint.id,
+                    old_date: selectedAppoint.appointment_date,
+                    new_date: rescheduleData.new_date,
+                    old_time: selectedAppoint.appointment_time,
+                    new_time: rescheduleData.new_time,
+                    old_therapist: selectedAppoint.therapist_id,
+                    new_therapist: newTherapistId,
+                    reason: rescheduleData.reason,
+                    changed_by: user.id,
+                    changed_at: new Date().toISOString()
+                };
+                const changes = {
+                    status: 'เลื่อนนัด',
+                    appointment_date: rescheduleData.new_date,
+                    appointment_time: rescheduleData.new_time,
+                    therapist_id: newTherapistId
+                };
+
+                // Optimistic update: ปิดหน้าต่างและแสดงผลทันที
                 setDb(prev => {
-                    const newApps = prev.appointments.map(a => {
-                        if(a.id === selectedAppoint.id) {
-                            return {
-                                ...a,
-                                status: 'เลื่อนนัด',
-                                appointment_date: rescheduleData.new_date,
-                                appointment_time: rescheduleData.new_time,
-                                therapist_id: parseInt(rescheduleData.new_therapist_id)
-                            }
-                        }
-                        return a;
-                    });
-
-                    // Add to history
-                    const newHistory = [...prev.history, {
-                        id: Date.now(),
-                        appointment_id: selectedAppoint.id,
-                        old_date: selectedAppoint.appointment_date,
-                        new_date: rescheduleData.new_date,
-                        old_time: selectedAppoint.appointment_time,
-                        new_time: rescheduleData.new_time,
-                        old_therapist: selectedAppoint.therapist_id,
-                        new_therapist: parseInt(rescheduleData.new_therapist_id),
-                        reason: rescheduleData.reason,
-                        changed_by: user.id,
-                        changed_at: new Date().toISOString()
-                    }];
-
-                    return { ...prev, appointments: newApps, history: newHistory };
+                    const newApps = prev.appointments.map(a => String(a.id)===String(selectedAppoint.id) ? {...a,...changes} : a);
+                    return { ...prev, appointments: newApps, history: [...prev.history, historyRecord] };
                 });
-                
                 setIsRescheduleOpen(false);
+
+                const update = {id:Date.now(), appointment_id:selectedAppoint.id, appointment_date:normalizeDateKey(selectedAppoint.appointment_date), ...changes, updated_at:new Date().toISOString()};
+                try {
+                    await appendToGoogleSheet('appointmentUpdates', update);
+                } catch(e) {
+                    setDb(prev => ({
+                        ...prev,
+                        appointments:prev.appointments.map(a=>String(a.id)===String(selectedAppoint.id)?{...a,status:selectedAppoint.status,appointment_date:selectedAppoint.appointment_date,appointment_time:selectedAppoint.appointment_time,therapist_id:selectedAppoint.therapist_id}:a),
+                        history:prev.history.filter(h=>String(h.id)!==String(historyRecord.id))
+                    }));
+                    alert('เลื่อนนัดไม่สำเร็จ ระบบคืนข้อมูลนัดเดิมแล้ว');
+                }
             };
 
             return (
@@ -958,7 +995,10 @@
                                             <td className="py-3 px-6"><div className="grid grid-cols-2 gap-2 min-w-[170px]"><label className="text-[11px] text-gray-500">ก่อน<input type="number" min="0" max="10" disabled={item.status!=='ตามนัด'} value={getClinical(item).pain_before} onChange={e=>setClinicalValue(item,'pain_before',e.target.value)} onBlur={()=>saveClinical(item)} className="mt-1 w-full border rounded-lg px-2 py-2 disabled:bg-gray-100"/></label><label className="text-[11px] text-gray-500">หลัง<input type="number" min="0" max="10" disabled={item.status!=='ตามนัด'} value={getClinical(item).pain_after} onChange={e=>setClinicalValue(item,'pain_after',e.target.value)} onBlur={()=>saveClinical(item)} className="mt-1 w-full border rounded-lg px-2 py-2 disabled:bg-gray-100"/></label><span className="col-span-2 text-[11px] text-gray-400">เปิดเมื่อเลือก “ตามนัด”</span></div></td>
                                             <td className="py-3 px-6"><textarea rows="2" disabled={item.status!=='ตามนัด'} value={getClinical(item).range_of_motion} onChange={e=>setClinicalValue(item,'range_of_motion',e.target.value)} onBlur={()=>saveClinical(item)} placeholder="เช่น ไหล่กาง 120°" className="min-w-[190px] w-full border rounded-lg px-3 py-2 disabled:bg-gray-100 disabled:cursor-not-allowed"></textarea></td>
                                             <td className="py-3 px-6 text-center">
-                                                <span className="text-xs text-gray-500">แก้ไข/ลบใน Google Sheet</span>
+                                                <div className="flex flex-col items-center gap-2">
+                                                    <Button variant="outline" onClick={() => openReschedule(item)} className="text-xs px-3 py-2">เลื่อนนัด</Button>
+                                                    <span className="text-[11px] text-gray-400">ลบข้อมูลใน Google Sheet</span>
+                                                </div>
                                             </td>
                                         </tr>
                                     ))}
@@ -1136,6 +1176,11 @@
             const [googleSyncStatus, setGoogleSyncStatus] = useState('พร้อมใช้งาน');
             const [googleReady, setGoogleReady] = useState(false);
             const syncBusyRef = useRef(false);
+            const activeWritesRef = useRef(0);
+            const pullBusyRef = useRef(false);
+            const refreshTimerRef = useRef(null);
+            const persistenceTimerRef = useRef(null);
+            const lastBackupAtRef = useRef(0);
             const googleApiVersionRef = useRef('');
             const pendingAddsRef = useRef((()=>{try{return JSON.parse(localStorage.getItem('thaiMassagePendingAdds')||'{}')||{};}catch(e){return {};}})());
             const emptyAppointmentReadsRef = useRef(0);
@@ -1165,15 +1210,16 @@
             const setSelectedDate = value => { setSelectedDateState(value); localStorage.setItem('thaiMassageSelectedDate', value); };
             const loadFromGoogleSheet = () => {
                 if (!googleSheetUrl) { setGoogleReady(true); return; }
-                if (syncBusyRef.current) return;
+                if (syncBusyRef.current || pullBusyRef.current) return;
+                pullBusyRef.current = true;
                 setGoogleSyncStatus('กำลังดึงข้อมูล');
                 const callbackName = `googleSheetCallback_${Date.now()}`;
                 const script = document.createElement('script');
                 let finished = false;
                 const cleanup = () => { if(script.parentNode) script.parentNode.removeChild(script); delete window[callbackName]; };
-                const timeout = setTimeout(() => { if(!finished){ finished=true; cleanup(); setGoogleReady(true); setGoogleSyncStatus('ดึงข้อมูลไม่สำเร็จ'); } }, 8000);
+                const timeout = setTimeout(() => { if(!finished){ finished=true; pullBusyRef.current=false; cleanup(); setGoogleReady(true); setGoogleSyncStatus('ดึงข้อมูลไม่สำเร็จ'); } }, 30000);
                 window[callbackName] = response => {
-                    if(finished) return; finished=true; clearTimeout(timeout); cleanup();
+                    if(finished) return; finished=true; pullBusyRef.current=false; clearTimeout(timeout); cleanup();
                     googleApiVersionRef.current = response?.apiVersion || '';
                     const validAppointmentPayload = response?.ok && response.initialized && response.apiVersion === EXPECTED_APPS_SCRIPT_VERSION && response.appointmentSource === 'appointments' && response.appointmentMeta?.valid === true && Array.isArray(response?.data?.appointments);
                     if(validAppointmentPayload) {
@@ -1183,7 +1229,10 @@
                             setGoogleSyncStatus('Apps Script เป็นเวอร์ชันเก่า กรุณา Deploy เวอร์ชันใหม่');
                         } else {
                             setDb(current => {
-                                localStorage.setItem('thaiMassageDatabaseBeforeGooglePull', JSON.stringify(current));
+                                if (Date.now() - lastBackupAtRef.current > 300000) {
+                                    try { localStorage.setItem('thaiMassageDatabaseBeforeGooglePull', JSON.stringify(current)); } catch(e) {}
+                                    lastBackupAtRef.current = Date.now();
+                                }
                                 const remoteData = {};
                                 response.presentCollections.forEach(name => {
                                     if (Object.prototype.hasOwnProperty.call(response.data, name)) {
@@ -1208,7 +1257,7 @@
                     else setGoogleSyncStatus(response?.error ? `ไม่ใช้ข้อมูลล่าสุด: ${response.error}` : 'ข้อมูลจาก Google Sheet ไม่สมบูรณ์ ระบบเก็บข้อมูลเดิมไว้');
                     setGoogleReady(true);
                 };
-                script.onerror = () => { if(!finished){ finished=true; clearTimeout(timeout); cleanup(); setGoogleReady(true); setGoogleSyncStatus('ดึงข้อมูลไม่สำเร็จ'); } };
+                script.onerror = () => { if(!finished){ finished=true; pullBusyRef.current=false; clearTimeout(timeout); cleanup(); setGoogleReady(true); setGoogleSyncStatus('ดึงข้อมูลไม่สำเร็จ'); } };
                 script.src = `${googleSheetUrl}?callback=${callbackName}&t=${Date.now()}`;
                 document.body.appendChild(script);
             };
@@ -1219,25 +1268,30 @@
                 if (!googleSheetUrl) throw new Error('ยังไม่ได้ตั้งค่า Google Sheet URL');
                 if (googleApiVersionRef.current !== EXPECTED_APPS_SCRIPT_VERSION) { setGoogleSyncStatus(`กรุณา Deploy Apps Script เวอร์ชันล่าสุด (${EXPECTED_APPS_SCRIPT_VERSION})`); throw new Error('Apps Script version mismatch'); }
                 if (collection !== 'appointmentUpdates') { pendingAddsRef.current[collection] = [...(pendingAddsRef.current[collection] || []), record]; localStorage.setItem('thaiMassagePendingAdds', JSON.stringify(pendingAddsRef.current)); }
-                syncBusyRef.current = true; setGoogleSyncStatus('กำลังเพิ่มข้อมูล');
+                activeWritesRef.current += 1; syncBusyRef.current = true; setGoogleSyncStatus('กำลังเพิ่มข้อมูล');
                 try {
                     const body = new URLSearchParams(); body.set('collection', collection); body.set('record', JSON.stringify(record));
                     await fetch(googleSheetUrl, {method:'POST',mode:'no-cors',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:body.toString()});
                     setGoogleSyncStatus('เพิ่มข้อมูลแล้ว');
-                    setTimeout(loadFromGoogleSheet, 1800);
+                    clearTimeout(refreshTimerRef.current);
+                    refreshTimerRef.current = setTimeout(loadFromGoogleSheet, 2500);
                 } catch(e) { if(collection !== 'appointmentUpdates') { pendingAddsRef.current[collection]=(pendingAddsRef.current[collection]||[]).filter(row=>String(row.id)!==String(record.id)); localStorage.setItem('thaiMassagePendingAdds', JSON.stringify(pendingAddsRef.current)); } setGoogleSyncStatus('เพิ่มข้อมูลไม่สำเร็จ'); throw e; }
-                finally { syncBusyRef.current = false; }
+                finally { activeWritesRef.current = Math.max(0, activeWritesRef.current - 1); syncBusyRef.current = activeWritesRef.current > 0; }
             };
 
             useEffect(() => {
-                localStorage.setItem('thaiMassageDatabase', JSON.stringify(db));
+                clearTimeout(persistenceTimerRef.current);
+                persistenceTimerRef.current = setTimeout(() => {
+                    try { localStorage.setItem('thaiMassageDatabase', JSON.stringify(db)); } catch(e) { setGoogleSyncStatus('พื้นที่เก็บข้อมูลในเครื่องเต็ม'); }
+                }, 300);
+                return () => clearTimeout(persistenceTimerRef.current);
             }, [db]);
 
             useEffect(() => {
                 setGoogleReady(false);
                 loadFromGoogleSheet();
-                const interval = setInterval(loadFromGoogleSheet, 15000);
-                return () => clearInterval(interval);
+                const interval = setInterval(loadFromGoogleSheet, 60000);
+                return () => { clearInterval(interval); clearTimeout(refreshTimerRef.current); };
             }, [googleSheetUrl]);
 
             // Login Handler
